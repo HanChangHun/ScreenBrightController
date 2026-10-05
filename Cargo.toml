@@ -1,0 +1,16 @@
+[package]
+name = "gamma-dimmer"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace]
+members = ["app/src-tauri"]
+default-members = ["."]
+
+[profile.release]
+opt-level = "s"
+strip = true

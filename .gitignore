@@ -1,0 +1,16 @@
+/target/
+/target-tests/
+/dist/
+/evidence/
+/backups/
+*.bundle
+/app/src-tauri/target/
+/app/src-tauri/gen/
+**/node_modules/
+.env
+.env.*
+*.log
+*.pdb
+__pycache__/
+/app/src-tauri/icons/icon-before-diagonal.ico
+/app/src-tauri/icons/icon-preview.png
