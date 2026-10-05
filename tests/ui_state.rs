@@ -5,7 +5,7 @@ fn popup_clamps_physical_work_area_at_mixed_dpi_and_negative_origin() {
     use gamma_dimmer::ui::popup_bounds;
     assert_eq!(
         popup_bounds((-1920, 0, 1920, 1040), (-10.0, 1030.0), 1.5),
-        (-673, 202, 645, 810)
+        (-673, 502, 645, 510)
     );
     assert_eq!(
         popup_bounds((0, 40, 300, 400), (2.0, 45.0), 2.0),
@@ -19,7 +19,7 @@ fn shared_controls_start_zero_validate_and_preview_effective_targets() {
     let status = ui.status().unwrap();
     assert_eq!(status["controls"]["master"]["dim"], 0);
     assert_eq!(status["consent"], false);
-    assert!(ui.set_control("master", 3, true).is_err());
+    assert!(ui.set_control("master", 91, true).is_err());
     assert!(ui.set_control("missing", 50, true).is_err());
     assert_eq!(ui.status().unwrap()["controls"]["master"]["dim"], 0);
     ui.set_control("master", 90, true).unwrap();

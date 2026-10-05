@@ -5,9 +5,9 @@ root = Path(__file__).resolve().parents[1]
 dist = root / 'dist'
 dist.mkdir(exist_ok=True)
 # Versioned artifact deliberately leaves the running old executable untouched.
-shutil.copy2(root / 'target' / 'release' / 'gamma-dimmer-app.exe', dist / 'ScreenBrightController-v0.3.exe')
+shutil.copy2(root / 'target' / 'release' / 'gamma-dimmer-app.exe', dist / 'ScreenBrightController-v0.4.exe')
 shutil.copy2(root / 'target' / 'release' / 'gamma-cli.exe', dist / 'gamma-cli.exe')
-app = dist / 'ScreenBrightController-v0.3.exe'
+app = dist / 'ScreenBrightController-v0.4.exe'
 cli = dist / 'gamma-cli.exe'
 
 def run(exe, arg, output):
@@ -33,11 +33,11 @@ def get(q):
         raise RuntimeError('unexpected watchdog EOF')
     return value
 
-before = run(app, '--diagnose', 'diagnose-v03-before.json')
-after = run(app, '--diagnose', 'diagnose-v03-after.json')
-startup = run(app, '--startup-check', 'app-startup-check-v03.json')
-smoke = run(app, '--self-test', 'app-self-test-v03.json')
-cli_smoke = run(cli, '--mock', 'cli-mock-v03.json')
+before = run(app, '--diagnose', 'diagnose-v04-before.json')
+after = run(app, '--diagnose', 'diagnose-v04-after.json')
+startup = run(app, '--startup-check', 'app-startup-check-v04.json')
+smoke = run(app, '--self-test', 'app-self-test-v04.json')
+cli_smoke = run(cli, '--mock', 'cli-mock-v04.json')
 assert not startup['armed'] and not startup['restore_errors']
 assert all(data['native_display_writes'] == 0 for data in (after, startup, smoke, cli_smoke))
 assert smoke['watchdog_timeout_restored'] and smoke['watchdog_disconnect_restored']
@@ -63,7 +63,7 @@ try:
     assert not restored['armed'] and restored['mock_values']['mock-1'] == 40000
     guard.stdin.close()
     assert guard.wait(timeout=5) == 0
-    (root / 'evidence' / 'app-process-death-v03.json').write_text(json.dumps(restored, indent=2))
+    (root / 'evidence' / 'app-process-death-v04.json').write_text(json.dumps(restored, indent=2))
 finally:
     if parent.poll() is None:
         parent.kill()
@@ -74,17 +74,16 @@ finally:
 
 def ramps(d):
     return {m['id']:m['original'] for m in d['monitors']}
-after = run(app, '--diagnose', 'diagnose-v03-after.json')
+after = run(app, '--diagnose', 'diagnose-v04-after.json')
 unchanged = ramps(before) == ramps(after)
 assert unchanged, 'Native gamma readback changed since baseline; investigate external software.'
-text = (root / 'evidence' / 'tests-v03.txt').read_text()
+text = (root / 'evidence' / 'tests-v04.txt').read_text()
 counts = [int(n) for n in re.findall(r'test result: ok\. (\d+) passed;', text)]
 report = {
     'rust_tests_passed':sum(counts),
     'rust_test_failures':0,
-    'ui_smoke_assertions':int(re.search(r'UI smoke PASS: (\d+) assertions', (root/'evidence/ui-smoke-v03.txt').read_text()).group(1)),
-    'red_logs':len(list((root/'evidence').glob('*-red.txt'))),
-    'green_logs':len(list((root/'evidence').glob('*-green.txt'))),
+    'ui_smoke_assertions':int(re.search(r'UI smoke PASS: (\d+) assertions', (root/'evidence/ui-smoke-v04.txt').read_text()).group(1)),
+
     'active_monitors':[(m['id'], m['name'], m['original'] is not None) for m in after['monitors']],
     'native_gamma_snapshots_unchanged':unchanged,
     'real_watchdog_startup_unarmed':not startup['armed'],
@@ -92,7 +91,7 @@ report = {
     'app_mock_watchdog_eof_restored':smoke['watchdog_disconnect_restored'],
     'app_mock_parent_death_with_open_pipe_restored':True,
     'native_display_writes':0,
-    'artifacts':[{'path':str(p.resolve()),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in (app, cli)],
+    'artifacts':[{'path':str(p.relative_to(root)),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in (app, cli)],
 }
-(root / 'evidence' / 'verification-v03.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+(root / 'evidence' / 'verification-v04.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print(json.dumps(report, ensure_ascii=False, indent=2))

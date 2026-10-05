@@ -25,51 +25,30 @@ fn status(state: tauri::State<'_, State>) -> Result<serde_json::Value, String> {
     with_session(&state, UiSession::status)
 }
 #[tauri::command]
-fn set_control(
+fn live_control(
     id: String,
     dim: i64,
     enabled: bool,
+    generation: u64,
     state: tauri::State<'_, State>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
-    with_session(&state, |s| s.set_control(&id, dim, enabled))?;
-    let _ = app.emit("state-changed", ());
-    Ok(())
-}
-#[tauri::command]
-fn set_consent(
-    consent: bool,
-    state: tauri::State<'_, State>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    with_session(&state, |s| {
-        s.consent = consent;
-        Ok(())
-    })?;
-    let _ = app.emit("state-changed", ());
-    Ok(())
-}
-#[tauri::command]
-fn preview(state: tauri::State<'_, State>, app: tauri::AppHandle) -> Result<(), String> {
-    let result = with_session(&state, UiSession::preview);
+) -> Result<serde_json::Value, String> {
+    let result = with_session(&state, |s| {
+        s.live_control(&id, dim, enabled, generation)?;
+        s.status()
+    });
     let _ = app.emit("state-changed", ());
     result
 }
 #[tauri::command]
-fn apply(
-    mode: String,
+fn restore(
     state: tauri::State<'_, State>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
-    let result = with_session(&state, |s| s.apply(&mode));
-    let _ = app.emit("state-changed", ());
-    result
-}
-#[tauri::command]
-fn restore(state: tauri::State<'_, State>, app: tauri::AppHandle) -> Result<(), String> {
+) -> Result<serde_json::Value, String> {
     let result = restore_handle(&state);
     let _ = app.emit("state-changed", ());
-    result
+    result?;
+    with_session(&state, UiSession::status)
 }
 #[tauri::command]
 fn hide_popup(app: tauri::AppHandle) {
@@ -129,6 +108,9 @@ fn show_popup(
     let _ = app.emit("state-changed", ());
     Ok(())
 }
+fn popup_should_hide(event: &tauri::WindowEvent) -> bool {
+    matches!(event, tauri::WindowEvent::CloseRequested { .. })
+}
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if !args.is_empty() && args[0] != "--demo" {
@@ -146,10 +128,7 @@ fn main() {
         )))
         .invoke_handler(tauri::generate_handler![
             status,
-            set_control,
-            set_consent,
-            preview,
-            apply,
+            live_control,
             restore,
             hide_popup,
             open_main
@@ -207,8 +186,16 @@ fn main() {
                         ..
                     } = event
                     {
-                        if let Err(e) = show_popup(tray.app_handle(), position) {
-                            report(tray.app_handle(), e);
+                        let app = tray.app_handle();
+                        if app
+                            .get_webview_window("popup")
+                            .is_some_and(|w| w.is_visible().unwrap_or(false))
+                        {
+                            if let Some(w) = app.get_webview_window("popup") {
+                                let _ = w.hide();
+                            }
+                        } else if let Err(e) = show_popup(app, position) {
+                            report(app, e);
                         }
                     }
                 })
@@ -231,15 +218,11 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() == "popup" {
-                match event {
-                    tauri::WindowEvent::Focused(false) => {
-                        let _ = window.hide();
-                    }
-                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                if popup_should_hide(event) {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        let _ = window.hide();
                     }
-                    _ => {}
+                    let _ = window.hide();
                 }
                 return;
             }
@@ -269,4 +252,16 @@ fn main() {
         }
         _ => {}
     });
+}
+#[cfg(test)]
+mod popup_policy_tests {
+    #[test]
+    fn focus_loss_does_not_hide_popup() {
+        assert!(!super::popup_should_hide(&tauri::WindowEvent::Focused(
+            false
+        )));
+        assert!(!super::popup_should_hide(&tauri::WindowEvent::Focused(
+            true
+        )));
+    }
 }

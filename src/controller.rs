@@ -127,13 +127,26 @@ impl<D: Driver> Controller<D> {
             if self.changed.contains_key(id) {
                 self.verify_target(id)?;
                 self.driver.renew(id)?;
+                if self.expected.get(id) == Some(&ramp) {
+                    continue;
+                }
             } else {
                 self.driver.arm_continuous(id)?;
                 self.changed.insert(id.clone(), 0);
             }
+            let previous = self
+                .expected
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| original.clone());
+            // Protect the attempted write even if SET/read fails. Never recapture originals.
             self.expected.insert(id.clone(), ramp.clone());
             let api_success = self.driver.set(id, &ramp)?;
             let readback = self.driver.read(id);
+            if readback.as_ref() == Ok(&previous) && previous != ramp {
+                // An ignored update left the verified ramp intact: renew it without more SETs.
+                self.expected.insert(id.clone(), previous);
+            }
             out.push(Outcome {
                 id: id.clone(),
                 api_success,

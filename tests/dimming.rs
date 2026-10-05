@@ -1,13 +1,13 @@
 use gamma_dimmer::scale;
 #[test]
-fn dimming_conversion_requires_exact_five_steps() {
-    for dim in (0..=90).step_by(5) {
+fn dimming_conversion_accepts_every_integer() {
+    for dim in 0..=90 {
         assert_eq!(
             gamma_dimmer::dimming_percent(dim).unwrap() as i64,
             100 - dim
         );
     }
-    for dim in [-5, 1, 4, 6, 89, 91, 95, 100, 256] {
+    for dim in [-5, -1, 91, 95, 100, 256] {
         assert!(
             gamma_dimmer::dimming_percent(dim).is_err(),
             "accepted {dim}"

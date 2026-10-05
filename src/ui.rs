@@ -1,4 +1,4 @@
-//! Backend-owned ephemeral controls shared by all windows. Editing never calls gamma set.
+//! Backend-owned ephemeral controls; live_control is the intentional user-gesture write boundary.
 use crate::{dimming_percent, session::Session};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -16,7 +16,7 @@ pub fn popup_bounds(
         1.0
     };
     let w = ((430.0 * scale).round() as u32).min(width);
-    let h = ((540.0 * scale).round() as u32).min(height);
+    let h = ((340.0 * scale).round() as u32).min(height);
     let gap = (12.0 * scale).round() as i32;
     let x = (click.0.round() as i32 - w as i32 - gap).clamp(left, left + width as i32 - w as i32);
     let y = (click.1.round() as i32 - h as i32 - gap).clamp(top, top + height as i32 - h as i32);
@@ -31,6 +31,9 @@ pub struct UiSession {
     pub session: Session,
     pub controls: BTreeMap<String, Control>,
     pub consent: bool,
+    pub generation: u64,
+    pub revision: u64,
+    live_blocked: bool,
     pub outcomes: Value,
     pub message: String,
 }
@@ -57,12 +60,17 @@ impl UiSession {
             session,
             controls,
             consent: false,
+            generation: 0,
+            revision: 0,
+            live_blocked: false,
             outcomes: json!([]),
             message: "No changes applied.".into(),
         })
     }
     pub fn status(&mut self) -> Result<Value, String> {
         let mut status = self.session.status()?;
+        status["generation"] = json!(self.generation);
+        status["revision"] = json!(self.revision);
         status["controls"] = json!(self.controls);
         status["consent"] = json!(self.consent);
         status["outcomes"] = self.outcomes.clone();
@@ -90,6 +98,32 @@ impl UiSession {
         *control = Control { dim, enabled };
         Ok(())
     }
+    /// Only intentional UI gestures use this command. Generation fences all pre-Restore intents.
+    pub fn live_control(
+        &mut self,
+        id: &str,
+        dim: i64,
+        enabled: bool,
+        generation: u64,
+    ) -> Result<(), String> {
+        dimming_percent(dim)?;
+        if generation != self.generation || self.live_blocked {
+            return Err("Live request cancelled; Restore before retrying.".into());
+        }
+        if !self.controls.contains_key(id) {
+            return Err("unknown control".into());
+        }
+        self.controls.insert(id.into(), Control { dim, enabled });
+        self.revision += 1;
+        self.consent = true;
+        let result = self.apply("continuous");
+        if let Err(ref e) = result {
+            self.live_blocked = true;
+            self.generation += 1;
+            self.message = format!("Live update stopped: {e}. Restore before retrying.");
+        }
+        result
+    }
     pub fn main_close(&mut self) -> Result<(), String> {
         if self.session.is_continuous() {
             Ok(())
@@ -101,6 +135,9 @@ impl UiSession {
         if let Err(e) = self.session.heartbeat() {
             self.message = format!("Safety stop: {e}. Restore before retrying.");
             self.consent = false;
+            self.live_blocked = true;
+            self.generation += 1;
+            self.revision += 1;
             return Err(e);
         }
         Ok(())
@@ -145,7 +182,16 @@ impl UiSession {
                 continue;
             }
             match self.session.continuous(vec![id], percent, true) {
-                Ok(mut rows) => out.append(&mut rows),
+                Ok(mut rows) => {
+                    let failed = rows
+                        .iter()
+                        .any(|r| !r.api_success || r.readback_matches != Some(true));
+                    out.append(&mut rows);
+                    if failed {
+                        self.outcomes = json!(out);
+                        return Err("API rejected, readback failed or driver ignored dimming; attempted targets remain watchdog protected".into());
+                    }
+                }
                 Err(e) => {
                     self.outcomes = json!(out);
                     self.message =
@@ -206,9 +252,13 @@ impl UiSession {
         Ok(())
     }
     pub fn restore(&mut self) -> Result<(), String> {
+        self.generation += 1;
+        self.revision += 1;
+        self.live_blocked = true;
         self.consent = false;
         match self.session.restore() {
             Ok(()) => {
+                self.live_blocked = false;
                 for control in self.controls.values_mut() {
                     control.dim = 0;
                 }

@@ -13,8 +13,8 @@ pub mod watchdog;
 pub type Ramp = Vec<Vec<u16>>;
 /// Dimming amount, not brightness; reject instead of silently rounding IPC inputs.
 pub fn dimming_percent(dim: i64) -> Result<u8, String> {
-    if !(0..=90).contains(&dim) || dim % 5 != 0 {
-        return Err("dimming requires 0..90 in exact steps of 5".into());
+    if !(0..=90).contains(&dim) {
+        return Err("dimming requires an integer from 0 to 90".into());
     }
     Ok((100 - dim) as u8)
 }
