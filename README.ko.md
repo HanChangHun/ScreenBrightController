@@ -28,8 +28,4 @@ node scripts/ui-smoke.cjs
 
 결과: `target/release/gamma-dimmer-app.exe` (`ScreenBrightController.exe`로 이름 변경 가능). Rust/MSVC 및 Tauri의 Windows 빌드 환경이 필요하며, Node는 UI 테스트에만 사용합니다.
 
-## 주의사항
-
-HDR을 끄고 다른 디머·색상 조절 도구와 동시에 사용하지 마세요. 강한 디밍은 드라이버가 거부할 수 있습니다. 모니터 연결을 바꾸기 전에 복원하고 종료하세요. 드라이버·시스템 오류 시 복원을 보장할 수는 없습니다.
-
 검증 범위와 남은 수동 확인 사항은 [VALIDATION.md](VALIDATION.md)에 있습니다. 실행 파일과 로컬 진단 자료는 소스 저장소에 포함하지 않습니다.

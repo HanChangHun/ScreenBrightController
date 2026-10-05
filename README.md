@@ -30,8 +30,4 @@ node scripts/ui-smoke.cjs
 
 Run `target/release/gamma-dimmer-app.exe`; it can be renamed to `ScreenBrightController.exe`. Prebuilt local artifact: `dist/ScreenBrightController-v0.3.exe`.
 
-## Limitations
-
-Use with HDR off and avoid other dimmers or color-adjustment tools. Strong dimming may be rejected by the driver. Restore and quit before changing monitor connections. Recovery is best-effort under driver or system failures.
-
 See [VALIDATION.md](VALIDATION.md) for testing scope and manual checks. Binaries and local diagnostic evidence are not included in this source repository.
