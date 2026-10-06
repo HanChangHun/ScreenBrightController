@@ -8,6 +8,8 @@ if(!window.__TAURI__&&new URLSearchParams(location.search).has('demo')){
  window.addEventListener('storage',e=>{if(e.key===key)changed();});
  window.__TAURI__={core:{invoke:async(command,args={})=>{
  const state=read();if(command==='status')return state;
+ if(command==='get_autostart')return {enabled:state.autostart===true,error:null};
+ if(command==='set_autostart'){state.autostart=args.enabled===true;localStorage.setItem(key,JSON.stringify(state));return {enabled:state.autostart,error:null};}
  if(command==='live_control'){
  if(args.generation!==state.generation)throw Error('Live request cancelled.');
  if(!state.controls[args.id]||!Number.isInteger(args.dim)||args.dim<0||args.dim>90)throw Error('Use an integer from 0 to 90.');

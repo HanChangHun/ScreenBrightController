@@ -6,6 +6,7 @@ pub mod guard;
 pub mod native;
 #[cfg(windows)]
 pub mod session;
+pub mod startup;
 #[cfg(windows)]
 pub mod ui;
 #[cfg(windows)]

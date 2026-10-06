@@ -70,7 +70,7 @@ kernel.LockResource.restype = ctypes.c_void_p
 kernel.SizeofResource.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 kernel.SizeofResource.restype = ctypes.c_uint32
 kernel.FreeLibrary.argtypes = [ctypes.c_void_p]
-module = kernel.LoadLibraryExW(str(root / 'dist/ScreenBrightController-v0.4.exe'), None, 2)
+module = kernel.LoadLibraryExW(str(root / 'dist/ScreenBrightController-v0.5.exe'), None, 2)
 assert module
 resource_bytes = []
 try:
@@ -93,7 +93,7 @@ version = ctypes.WinDLL('version', use_last_error=True)
 version.GetFileVersionInfoSizeW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p]
 version.GetFileVersionInfoW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
 version.VerQueryValueW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint)]
-exe = str(root / 'dist/ScreenBrightController-v0.4.exe')
+exe = str(root / 'dist/ScreenBrightController-v0.5.exe')
 size = version.GetFileVersionInfoSizeW(exe, None)
 assert size
 buffer = ctypes.create_string_buffer(size)
@@ -108,7 +108,7 @@ for key in ('ProductName', 'FileDescription', 'ProductVersion'):
     assert version.VerQueryValueW(buffer, base + key, ctypes.byref(pointer), ctypes.byref(length))
     metadata[key] = ctypes.wstring_at(pointer.value)
 assert metadata['ProductName'] == metadata['FileDescription'] == 'Screen Bright Controller'
-assert metadata['ProductVersion'] == '0.4.0'
+assert metadata['ProductVersion'] == '0.5.0'
 result = {'metadata': metadata, 'supplied_ico_sha256': expected, 'ico_unchanged': True, 'pe_icon_entries_match': len(resource_bytes), 'window_png_matches_ico_256': True, 'tray_rgba_matches_ico_32': True, 'native_display_writes': 0}
-(root / 'evidence/icon-v04.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+(root / 'evidence/icon-v05.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
 print(json.dumps(result, indent=2))

@@ -1,9 +1,36 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use gamma_dimmer::startup::{self, launch_mode, LaunchMode};
 use gamma_dimmer::{
     session::Session,
     ui::{popup_bounds, UiSession},
 };
 use std::sync::Mutex;
+static STARTUP_LOCK: Mutex<()> = Mutex::new(());
+#[tauri::command]
+async fn get_autostart() -> Result<startup::Status, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let _guard = STARTUP_LOCK.lock().map_err(|_| "Startup lock failed")?;
+        Ok(startup::get(
+            &startup::windows::WindowsRegistry,
+            &startup::windows::current_command()?,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn set_autostart(enabled: bool) -> Result<startup::Status, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = STARTUP_LOCK.lock().map_err(|_| "Startup lock failed")?;
+        Ok(startup::set(
+            &mut startup::windows::WindowsRegistry,
+            &startup::windows::current_command()?,
+            enabled,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -113,20 +140,42 @@ fn popup_should_hide(event: &tauri::WindowEvent) -> bool {
 }
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !args.is_empty() && args[0] != "--demo" {
+    if args == ["--autostart-check"] {
+        let result = startup::windows::current_command()
+            .map(|expected| startup::get(&startup::windows::WindowsRegistry, &expected));
+        match result {
+            Ok(state) => println!(
+                "{}",
+                serde_json::json!({"startup":state,"native_display_writes":0,"registration_writes":0})
+            ),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1)
+            }
+        }
+        return;
+    }
+    let mode = launch_mode(&args);
+    if mode == LaunchMode::Cli {
         if let Err(e) = gamma_dimmer::cli::run(&args) {
             eprintln!("{e}");
             std::process::exit(1)
         }
         return;
     }
-    let demo = args.first().is_some_and(|s| s == "--demo");
+    let demo = mode == LaunchMode::Demo;
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if launch_mode(args.get(1..).unwrap_or_default()) != LaunchMode::Tray {
+                show(app);
+            }
+        }))
         .manage(Mutex::new(Err::<UiSession, String>(
             "starting read-only snapshot".into(),
         )))
         .invoke_handler(tauri::generate_handler![
+            get_autostart,
+            set_autostart,
             status,
             live_control,
             restore,
@@ -214,6 +263,9 @@ fn main() {
                     _ => {}
                 })
                 .build(app)?;
+            if mode != LaunchMode::Tray {
+                show(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

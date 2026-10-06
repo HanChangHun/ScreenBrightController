@@ -62,4 +62,24 @@ async function refresh(){try{accept(await invoke('status'));}catch(e){error(`Sta
 $('restore').addEventListener('click',async e=>{if(!e.isTrusted||restoring)return;restoring=true;cancel();localError='';sync();try{if(flight)await flight.done;accept(await invoke('restore'));}catch(e){error(e);}finally{restoring=false;await refresh();}});
 if(popup){$('close-popup').addEventListener('click',()=>invoke('hide_popup'));$('open-main').addEventListener('click',()=>invoke('open_main'));document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();invoke('hide_popup');}});}
 if(window.__TAURI__?.event){window.__TAURI__.event.listen('gamma-error',e=>error(e.payload));window.__TAURI__.event.listen('state-changed',()=>refresh());}
+if(!popup&&$('autostart')){
+ const check=$('autostart'),message=$('startup-message');let busy=false;
+ function displayStartup(result){check.checked=result.enabled===true;check.disabled=result.enabled===null;message.textContent=result.error||'';}
+ async function loadStartup(){
+  if(busy)return;busy=true;check.disabled=true;
+  try{displayStartup(await invoke('get_autostart'));}
+  catch(e){displayStartup({enabled:null,error:`Startup state unavailable: ${e}`});}
+  finally{busy=false;}
+ }
+ $('settings-toggle').addEventListener('click',()=>{const panel=$('settings');panel.hidden=!panel.hidden;$('settings-toggle').setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden)loadStartup();});
+ check.addEventListener('change',async e=>{
+  if(!e.isTrusted||busy||check.disabled)return;
+  const enabled=check.checked;busy=true;check.disabled=true;message.textContent='Saving…';
+  try{displayStartup(await invoke('set_autostart',{enabled}));}
+  catch(e){try{const result=await invoke('get_autostart');displayStartup({...result,error:`Startup change failed: ${e}. ${result.error||''}`});}catch(readError){displayStartup({enabled:null,error:`Startup state unavailable: ${readError}`});}}
+  finally{busy=false;}
+ });
+ window.addEventListener?.('focus',loadStartup);
+ loadStartup();
+}
 refresh();setInterval(refresh,500);

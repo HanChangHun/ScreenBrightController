@@ -1,4 +1,55 @@
-# Verified release — Screen Bright Controller 0.4.0
+# Verified release — Screen Bright Controller 0.5.0
+
+## Windows login setting
+
+Header ⚙ expands **Start with Windows**, plus “Launch in tray · no dimming applied at login.” Default OFF; only an explicit checkbox change registers the app. Actual state is read asynchronously on initialization, Settings open and window focus. Busy requests are serialized; errors display verified state or disable the checkbox if unknown.
+
+Implementation: standard per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` through `winreg`, a robust equivalent to the Tauri autostart plugin. Only the `ScreenBrightController` entry is touched; no administrator rights, tasks, shell commands, gamma registry settings or StartupApproved changes. The exact current executable is quoted (including spaced paths), followed only by `--autostart`. A stale moved-path entry is reported. Windows Startup Apps/Task Manager and organization policy may independently block execution; this checkbox reflects the app's Run entry, not those external switches.
+
+Native async IPC runs off the UI thread under a mutex. Read before write, verify the complete command by readback, attempt prior-command rollback on set/readback failure or mismatch, and return a single final verified state. Failed rollback is explicit; unavailable readback never becomes optimistic success. Main is initially invisible to prevent login flash, then shown for normal/demo launches only. Exact `--autostart` launches the same fresh unarmed/read-only session into the tray; no dimming or independent brightness restoration. Autostart second-instance activation does not show main; normal activation still does. Existing watchdog/diagnostic arguments remain separate.
+
+### Current automated evidence
+
+- **48 Rust tests**, including **9 startup tests**; 0 failed.
+- **46 live UI assertions** (production main/popup script with shared memory IPC), **29 settings UI assertions** (injected IPC, markup/wiring and browser-only memory bridge).
+- **12 independent browser settings assertions** with trusted clicks and production HTML/CSS/JS at 740×358 content size: collapse/expand, OFF→ON→OFF, memory readback, unarmed gamma, compact settings fit/no horizontal overflow, Restore present and no footer. Expanded Settings scrolls with the display list. Browser results are not native WebView2/login acceptance.
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, JS syntax checks and release build: exit 0.
+- Actual release `--autostart-check`: **OFF**, no error, **0 registration writes / 0 native display writes**. Independent before/after registration comparison unchanged.
+- Release `--startup-check`: real watchdog unarmed. Actual memory-watchdog timeout/EOF/process-handle parent-death (pipe held open) checks passed. Existing app/watchdog untouched; only dedicated mock-test parents terminated.
+- Actual memory continuous lease survived 18 seconds; independent preview expired at 15 seconds; lost renewal restored after 10 seconds; continuous EOF restored; invalid/late/unknown/duplicate requests rejected.
+- Read-only native gamma before/after release verification identical; final after-all-checks comparison recorded separately. No development command requested real gamma SET or startup registration modification.
+- Original ICO hash unchanged; **7 PE icon entries**, window PNG and tray RGBA match the supplied icon. No native icon assets changed.
+
+### Observed RED → GREEN evidence
+
+1. Existing-registration UI assertion failed `false !== true` → asynchronous actual read initializes checkbox.
+2. Missing gear/change handlers → expansion, trusted serialized async toggles, verified error rollback and unknown-state disabling passed.
+3. Missing Rust get/set APIs → injected read and explicit enable/disable readback tests passed, including quoted spaced paths and write-free default.
+4. Set failure returned `None` instead of `Some(false)` → actual registration returned with error.
+5. Initial-get/readback/mismatch tests failed (unexpected write, incorrect enabled state, missing rollback) → transactional toggle and verified prior-entry restoration passed.
+6. Missing exact startup argument policy/hidden-window/native IPC/markup → route, read-only session and integration assertions passed.
+7. Browser settings command rejected as unknown → local-memory-only settings support passed without overriding any native bridge.
+8. Rollback final-read regression lacked the unavailable-readback error → one final read now determines both rollback error and checkbox state, avoiding an earlier stale read.
+
+The renamed repository had obsolete absolute paths in cached Tauri release permission metadata. Initial release build failed; only Tauri/single-instance release dependency caches were cleaned and regenerated. Subsequent build and actual release checks passed. No source-path workaround or old-path directory created.
+
+### v0.5 artifact
+
+- `dist/ScreenBrightController-v0.5.exe`: **8,176,640 bytes**, SHA-256 `897b2b6def60bb05192df0f35cff7929ad707b06d6ca6857222bcd9ed7ba1da1`.
+- `dist/gamma-cli.exe`: **665,088 bytes**, SHA-256 `b40762b151b16f742c9dfdc8e8705f1565eb4962002d8d142a34d6baa0180248`.
+- Product/FileDescription **Screen Bright Controller**; ProductVersion **0.5.0**. Identifier unchanged. Old versioned app executable not replaced; no commit/push/install/signing/publication.
+
+Ignored local evidence: `evidence/tests-v05.txt`, `ui-smoke-v05.txt`, `ui-settings-v05.txt`, `clippy-v05.txt`, `build-v05.txt`, `verification-v05.json`, `autostart-readonly-v05.json`, `continuous-v05.json`, `icon-v05.json`, `browser-settings-v05.json`, `diagnose-v05-before.json`, `diagnose-v05-final.json`, `safety-final-v05.json`.
+
+### Remaining acceptance / preserved scope
+
+Real registration toggles, real Windows sign-in, hidden tray/window behavior, second-instance native activation, spaced-path execution and external startup policy interactions remain manual: the user has **not enabled startup**. See [MANUAL_TESTS.md](MANUAL_TESTS.md). Memory/browser tests do not prove login execution.
+
+Controls remain exact 0–90: pointer/number 1, slider arrows/wheel 5; compact main/popup and no focus-loss hiding preserved. No independent brightness restoration, range remapping, gamma registry bypass or high-dimming promises. The user's dim 54 screenshot failure and real high-dimming boundary remain **unverified and unrelated to autostart**. Screenshots cannot establish native gamma effect; existing HDR/ICC/Night Light/hotplug/driver/OS/both-process limitations remain.
+
+---
+
+# Historical v0.4 verification (previous release only)
 
 ## Automated verification
 
