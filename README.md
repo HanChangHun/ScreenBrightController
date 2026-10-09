@@ -4,6 +4,16 @@ A dark, tray-based Windows utility for dimming individual displays or all displa
 
 [한국어](README.ko.md)
 
+## Install (Windows x64)
+
+Download the latest **`ScreenBrightController_<version>_x64-setup.exe`** from [GitHub Releases](https://github.com/HanChangHun/ScreenBrightController/releases/latest) and run it. The current-user installer needs no administrator rights, creates Start menu/desktop shortcuts, and registers the app in Windows Installed apps.
+
+Default location: `%LOCALAPPDATA%\Screen Bright Controller\ScreenBrightController.exe`. Microsoft Edge WebView2 is downloaded only if missing. The installer is not code-signed; Windows may show an unknown-publisher/SmartScreen warning. Download only from this repository and compare the supplied `SHA256SUMS.txt` when needed.
+
+Installation does **not** enable Windows startup or apply dimming. Launch the app from the Start menu, then use its controls deliberately. Before updating or uninstalling, use **Restore and quit** in the tray menu. The installer refuses to replace/remove an executable that is still running; it does not forcibly stop the app or its recovery watchdog.
+
+Updates are **manual**: download and run the newer installer. An automatic updater is not included. Old portable copies in a development `dist` folder are not required by the installed app and must not run alongside it.
+
 ## Features
 
 - Per-display or linked adjustment: **0–90 dimming, every integer**.
@@ -23,15 +33,22 @@ Settings reads the actual per-user Windows Run registration. Explicit toggles ar
 
 ## Build
 
-Requires Rust/MSVC and the Tauri Windows build prerequisites. Node is only needed for UI tests.
+Requires Rust/MSVC and the Tauri Windows build prerequisites. Node/npm are used for the pinned Tauri packaging CLI and UI tests; Python 3 is used for verification.
 
 ```sh
-cargo build --release --workspace
-cargo test --workspace
+npm --prefix app ci --ignore-scripts
+npm --prefix app run build
+cargo test --workspace --locked
 node scripts/ui-smoke.cjs
 node scripts/ui-settings.cjs
+python scripts/test_packaging.py
+python scripts/verify-release.py
+python scripts/verify-icon.py
+python scripts/verify-continuous.py
 ```
 
-Run `target/release/gamma-dimmer-app.exe`; it can be renamed to `ScreenBrightController.exe`. Prebuilt local artifact: `dist/ScreenBrightController-v0.5.exe`.
+Build outputs: `target/release/ScreenBrightController.exe` and `target/release/bundle/nsis/Screen Bright Controller_<version>_x64-setup.exe`. Verification does not recreate old `dist` executables. Each verifier accepts `--exe "<installed executable>"` and `--evidence-dir "<output directory>"`; native diagnostics are read-only and watchdog failure tests use memory only.
+
+See [docs/RELEASING.md](docs/RELEASING.md) for repeatable packaging and publication.
 
 See [VALIDATION.md](VALIDATION.md) for testing scope and manual checks. Binaries and local diagnostic evidence are not included in this source repository.

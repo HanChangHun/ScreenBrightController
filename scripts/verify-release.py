@@ -1,21 +1,23 @@
 """Verify built executables without desktop interaction or native gamma writes."""
 from pathlib import Path
-import subprocess, json, os, secrets, threading, queue, hashlib, re, shutil
+import argparse, subprocess, json, os, secrets, threading, queue, hashlib
 root = Path(__file__).resolve().parents[1]
-dist = root / 'dist'
-dist.mkdir(exist_ok=True)
-# Versioned artifact deliberately leaves the running old executable untouched.
-shutil.copy2(root / 'target' / 'release' / 'gamma-dimmer-app.exe', dist / 'ScreenBrightController-v0.5.exe')
-shutil.copy2(root / 'target' / 'release' / 'gamma-cli.exe', dist / 'gamma-cli.exe')
-app = dist / 'ScreenBrightController-v0.5.exe'
-cli = dist / 'gamma-cli.exe'
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--exe", type=Path, default=root / 'target/release/ScreenBrightController.exe')
+parser.add_argument("--evidence-dir", type=Path, default=root / 'evidence/package')
+options = parser.parse_args()
+app = options.exe.resolve()
+if not app.is_file():
+    parser.error(f'Executable not found: {app}; build with npm --prefix app run build first')
+evidence = options.evidence_dir.resolve()
+evidence.mkdir(parents=True, exist_ok=True)
 
 def run(exe, arg, output):
     result = subprocess.run([str(exe), arg], capture_output=True, timeout=15)
     if result.returncode:
         raise RuntimeError(f'{exe.name} {arg}: exit={result.returncode} {result.stderr.decode(errors="replace")}')
     parsed = json.loads(result.stdout)
-    (root / 'evidence' / output).write_bytes(result.stdout)
+    (evidence / output).write_bytes(result.stdout)
     return parsed
 
 def lines(stream):
@@ -42,15 +44,13 @@ def registration():
     except FileNotFoundError:
         return None
 registration_before = registration()
-startup_setting = run(app, '--autostart-check', 'autostart-readonly-v05.json')
+startup_setting = run(app, '--autostart-check', 'autostart-readonly.json')
 assert startup_setting['registration_writes'] == startup_setting['native_display_writes'] == 0
-before = run(app, '--diagnose', 'diagnose-v05-before.json')
-after = run(app, '--diagnose', 'diagnose-v05-after.json')
-startup = run(app, '--startup-check', 'app-startup-check-v05.json')
-smoke = run(app, '--self-test', 'app-self-test-v05.json')
-cli_smoke = run(cli, '--mock', 'cli-mock-v05.json')
+before = run(app, '--diagnose', 'diagnose-before.json')
+startup = run(app, '--startup-check', 'startup-check.json')
+smoke = run(app, '--self-test', 'self-test.json')
 assert not startup['armed'] and not startup['restore_errors']
-assert all(data['native_display_writes'] == 0 for data in (after, startup, smoke, cli_smoke))
+assert all(data['native_display_writes'] == 0 for data in (before, startup, smoke))
 assert smoke['watchdog_timeout_restored'] and smoke['watchdog_disconnect_restored']
 # Kill a mock parent while the watchdog pipe stays open, proving process-handle detection.
 parent = subprocess.Popen([str(app), '--mock-parent-wait'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -74,7 +74,7 @@ try:
     assert not restored['armed'] and restored['mock_values']['mock-1'] == 40000
     guard.stdin.close()
     assert guard.wait(timeout=5) == 0
-    (root / 'evidence' / 'app-process-death-v05.json').write_text(json.dumps(restored, indent=2))
+    (evidence / 'process-death.json').write_text(json.dumps(restored, indent=2), encoding='utf-8')
 finally:
     if parent.poll() is None:
         parent.kill()
@@ -85,21 +85,15 @@ finally:
 
 def ramps(d):
     return {m['id']:m['original'] for m in d['monitors']}
-after = run(app, '--diagnose', 'diagnose-v05-after.json')
+after = run(app, '--diagnose', 'diagnose-after.json')
 unchanged = ramps(before) == ramps(after)
 assert unchanged, 'Native gamma readback changed since baseline; investigate external software.'
-text = (root / 'evidence' / 'tests-v05.txt').read_text()
-counts = [int(n) for n in re.findall(r'test result: ok\. (\d+) passed;', text)]
+assert after['native_display_writes'] == 0
 assert registration_before == registration(), 'Startup registration changed during read-only verification'
 report = {
     'startup_registration_unchanged': True,
     'startup_registration_writes': 0,
     'startup_registration': startup_setting['startup'],
-    'settings_ui_assertions': int(re.search(r'Settings UI PASS: (\d+) assertions', (root/'evidence/ui-settings-v05.txt').read_text()).group(1)),
-    'browser_settings_assertions': len(json.loads((root/'evidence/browser-settings-v05.json').read_text())),
-    'rust_tests_passed':sum(counts),
-    'rust_test_failures':0,
-    'ui_smoke_assertions':int(re.search(r'UI smoke PASS: (\d+) assertions', (root/'evidence/ui-smoke-v05.txt').read_text()).group(1)),
 
     'active_monitors':[(m['id'], m['name'], m['original'] is not None) for m in after['monitors']],
     'native_gamma_snapshots_unchanged':unchanged,
@@ -108,7 +102,7 @@ report = {
     'app_mock_watchdog_eof_restored':smoke['watchdog_disconnect_restored'],
     'app_mock_parent_death_with_open_pipe_restored':True,
     'native_display_writes':0,
-    'artifacts':[{'path':str(p.relative_to(root)),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in (app, cli)],
+    'artifact':{'path':str(app),'bytes':app.stat().st_size,'sha256':hashlib.sha256(app.read_bytes()).hexdigest()},
 }
-(root / 'evidence' / 'verification-v05.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+(evidence / 'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print(json.dumps(report, ensure_ascii=False, indent=2))

@@ -1,7 +1,16 @@
 """Read-only checks: preserve supplied ICO; verify derived tray pixels and PE icon resources."""
 from pathlib import Path
-import ctypes, hashlib, json, struct, zlib
+import argparse, ctypes, hashlib, json, struct, zlib
 root = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--exe", type=Path, default=root / 'target/release/ScreenBrightController.exe')
+parser.add_argument("--evidence-dir", type=Path, default=root / 'evidence/package')
+options = parser.parse_args()
+app = options.exe.resolve()
+if not app.is_file():
+    parser.error(f'Executable not found: {app}; build with npm --prefix app run build first')
+evidence = options.evidence_dir.resolve()
+evidence.mkdir(parents=True, exist_ok=True)
 icons = root / 'app/src-tauri/icons'
 expected = '1cbe4d747d8ef3e26840a6b700b48e83a3440fa333fbf6c994114acea72f6398'
 data = (icons / 'icon.ico').read_bytes()
@@ -70,7 +79,7 @@ kernel.LockResource.restype = ctypes.c_void_p
 kernel.SizeofResource.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 kernel.SizeofResource.restype = ctypes.c_uint32
 kernel.FreeLibrary.argtypes = [ctypes.c_void_p]
-module = kernel.LoadLibraryExW(str(root / 'dist/ScreenBrightController-v0.5.exe'), None, 2)
+module = kernel.LoadLibraryExW(str(app), None, 2)
 assert module
 resource_bytes = []
 try:
@@ -93,7 +102,7 @@ version = ctypes.WinDLL('version', use_last_error=True)
 version.GetFileVersionInfoSizeW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p]
 version.GetFileVersionInfoW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
 version.VerQueryValueW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint)]
-exe = str(root / 'dist/ScreenBrightController-v0.5.exe')
+exe = str(app)
 size = version.GetFileVersionInfoSizeW(exe, None)
 assert size
 buffer = ctypes.create_string_buffer(size)
@@ -108,7 +117,7 @@ for key in ('ProductName', 'FileDescription', 'ProductVersion'):
     assert version.VerQueryValueW(buffer, base + key, ctypes.byref(pointer), ctypes.byref(length))
     metadata[key] = ctypes.wstring_at(pointer.value)
 assert metadata['ProductName'] == metadata['FileDescription'] == 'Screen Bright Controller'
-assert metadata['ProductVersion'] == '0.5.0'
+assert metadata['ProductVersion'] == json.loads((root / 'app/src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version']
 result = {'metadata': metadata, 'supplied_ico_sha256': expected, 'ico_unchanged': True, 'pe_icon_entries_match': len(resource_bytes), 'window_png_matches_ico_256': True, 'tray_rgba_matches_ico_32': True, 'native_display_writes': 0}
-(root / 'evidence/icon-v05.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+(evidence / 'icon.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
 print(json.dumps(result, indent=2))

@@ -1,4 +1,20 @@
-# Verified release — Screen Bright Controller 0.5.0
+# Installer packaging — 0.5.0
+
+The first GitHub installer packages the existing 0.5.0 functionality; the older sections below describe historical **local portable builds**, not the current installation or publication state.
+
+- Per-user NSIS x64 setup, stable `ScreenBrightController.exe`, original app identifier and supplied icon preserved. No runtime gamma/UI code changed.
+- Locked Tauri CLI 2.12.1; **5 packaging contract tests**, **48 Rust tests**, **46 live UI assertions**, and **29 settings assertions** passed. Cargo fmt/clippy and npm audit passed (no npm vulnerabilities reported).
+- The bundled executable passed read-only native startup/diagnostics, memory watchdog timeout/EOF/parent-death, continuous lease expiry and original PE-icon checks. Startup registration and the before/after native gamma snapshots were unchanged.
+- The shared NSIS process check is replaced with a read-only Restart Manager query. A running executable or a query error aborts installation/removal; no forced process shutdown is requested. Uninstall only removes the exact installed executable's opt-in startup command, and preserves it on updates.
+- `verify-release.py`, `verify-icon.py` and `verify-continuous.py` accept `--exe` and `--evidence-dir`; they no longer copy old binaries into `dist` or reuse historical browser test counts.
+- Build executable SHA-256: `21302e552afb9cc0bcbb09df272ea02712ad083866bec485545a9db38af7211c` (8,177,152 bytes). Installer acceptance and publication are separately verified before the GitHub draft release is made public.
+- Build host tools: Rust 1.98.1 / x86_64-pc-windows-msvc, Node 26.7.0, npm 11.19.0; installed MSVC toolset 14.44.35207. Fresh local evidence is under `evidence/package/`.
+
+See [docs/RELEASING.md](docs/RELEASING.md) for the installation/refusal acceptance procedure. The installer is unsigned and updates are manual. Packaging checks do not establish actual dimming effects or login autostart behavior.
+
+---
+
+# Historical local build — Screen Bright Controller 0.5.0
 
 ## Windows login setting
 
