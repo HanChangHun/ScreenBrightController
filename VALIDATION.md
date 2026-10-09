@@ -1,4 +1,31 @@
-# Tray-only recovery and compact UI — 0.5.1
+# Draggable/resizable tray popup — 0.5.2
+
+## Changes
+
+- Trusted primary mouse gestures on the title/header initiate Tauri's native `startDragging`; buttons, inputs, links, labels and editable content are excluded. No global drag-region attribute or display-control IPC is used.
+- Four border and four corner affordances initiate native `startResizeDragging` with the pinned Tauri 2.12.1 direction values. The popup remains undecorated/initially hidden, with a 430×260 logical minimum, work-area-capped native constraints, internal scrolling and a small lower-right grip. The original palette, controls, exact 0–90 range and icons remain unchanged.
+- Only first tray opening uses the clicked monitor's DPI-scaled 430×340 default. Reopening reads the actual native position and size, preserving adjustments in the **current running session only**. No restart geometry preference is written. Pure geometry selection retains the monitor with greatest overlap, otherwise the nearest available work area; clamp position/size without resetting to tray defaults. Native topology polling every two seconds and DPI events reconcile geometry on the main thread, without accessing the gamma session or emitting control events. Move before applying target-DPI constraints, then read back native size before deciding on a size setter.
+- Replace broad `core:default` capability with exactly local-popup event listen/unlisten and window start-dragging/start-resize-dragging permissions. No arbitrary frontend position/size setter, remote origin permission or new gamma command is granted.
+- Align both Cargo packages/lock records, Tauri config and npm manifest/lock records at **0.5.2**; third-party dependency versions and install identity remain unchanged. English/Korean usage and native acceptance/release checklists document session-only support.
+
+## Executed validation
+
+- **60 Rust tests**, **189 UI assertions** (41 live, 31 settings, 74 recovery, 16 copy, 27 geometry), and **17 Python contract/icon tests** passed. `cargo fmt --all -- --check`, locked workspace clippy with warnings denied, JS syntax checks, and locked Tauri/NSIS build passed.
+- RED→GREEN stdout is saved for trusted header drag, all resize directions, frontend/native integration, native session retention, screen/DPI clamping, topology policy, browser memory window bridge, aligned versions, and native DPI setter ordering. Missing new Rust APIs were observed as expected compiler RED failures; retained/clamped geometry and integration regressions also failed their actual assertions before implementation.
+- **20 browser-only assertions** passed in an isolated memory browser: trusted header gesture, all eight resize directions, synthetic-event rejection, no display-state mutation, toolbar exclusions, X/Escape hide, and unclipped/readable expanded settings at 430×260, 430×340 and 720×520. These trace supported native requests but do not move a real native window. Screenshot capture timed out; persisted DOM/gesture results are the evidence, not screenshots.
+- Final built executable passed `verify-release.py`, `verify-continuous.py` and `verify-icon.py`: real read-only diagnostics and unarmed startup; memory timeout/EOF/parent-death with pipe open; real elapsed-time continuous renewal/expiry; original supplied ICO and all **7 PE icon entries**. Final read-only ramps after all checks matched baseline. Startup remained OFF and unchanged; **0 native display writes / 0 startup registration writes**.
+- Standalone executable: `target/release/ScreenBrightController.exe`, **7,994,368 bytes**, SHA-256 `9020b89394114cd063ab999269ac2ba322a03eb79cf0c149e83b2c263cdacccb`.
+- NSIS installer: `target/release/bundle/nsis/Screen Bright Controller_0.5.2_x64-setup.exe`, **1,835,405 bytes**, SHA-256 `bfd5625659d691402cc635b3826a067373768552a105710118061377e82f2399`.
+
+Evidence: `evidence/v052/checks.json`, RED/GREEN and final stdout files, `browser-checks.json`, and `executable/` reports. The default Python lacked Pillow; all 15 Python tests passed in an isolated uv/Pillow environment. An initial test-only clippy clone-to-slice warning was corrected and the final warnings-denied run passed.
+
+## Remaining acceptance
+
+Final rebuilt candidate native title dragging, corner resizing, minus-button hiding and exact adjusted-bounds retention across reopening passed. Read-only gamma snapshots remained unchanged. Evidence is `evidence/v052/release-final/native/acceptance.json`; final automated runs are in `evidence/v052/release-final/checks.json` and `executable/`. Native resize-loop geometry was sampled after settling, not an intermediate capture. Existing 0.5.1 and test candidate were stopped only via normal Restore and quit. Same-DPI selected-monitor transitions are covered by regression tests; real mixed-DPI/hotplug acceptance remains unperformed. Installation/update/refusal and installed NSIS payload verification are a separate acceptance gate. The hide glyph is now − rather than ×; its accessible label and behavior are unchanged. The standalone executable hash is not an installed-payload hash; pinned Tauri NSIS bundling changes its bundle marker. Gamma behavior, recovery/watchdog protections, startup OFF opt-in, and supplied icon/install identity are preserved; no new native dimming-effect claim is made.
+
+---
+
+# Historical tray-only recovery and compact UI — 0.5.1
 
 ## Changes
 

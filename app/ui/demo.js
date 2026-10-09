@@ -8,6 +8,9 @@ if(!window.__TAURI__&&new URLSearchParams(location.search).has('demo')){
  window.addEventListener('storage',e=>{if(e.key===key)changed();});
  window.__TAURI__={core:{invoke:async(command,args={})=>{
  const state=read();if(command==='status')return state;
+ if(command==='plugin:window|start_dragging'||command==='plugin:window|start_resize_dragging'){
+ window.__TAURI__.window.gestures.push({command,args});return; // Trace only; no browser/native window mutation.
+ }
  if(command==='get_autostart')return {enabled:state.autostart===true,error:null};
  if(command==='set_autostart'){state.autostart=args.enabled===true;localStorage.setItem(key,JSON.stringify(state));return {enabled:state.autostart,error:null};}
  if(command==='live_control'){
@@ -22,5 +25,8 @@ if(!window.__TAURI__&&new URLSearchParams(location.search).has('demo')){
 
  else throw Error('Unknown browser demo command');
  state.revision++;localStorage.setItem(key,JSON.stringify(state));changed();return state;
- }},event:{listen:(name,fn)=>{if(name==='state-changed')listeners.push(fn);return Promise.resolve(()=>{});}}};
+ }},window:{gestures:[],getCurrentWindow:()=>({
+ startDragging:()=>window.__TAURI__.core.invoke('plugin:window|start_dragging'),
+ startResizeDragging:direction=>window.__TAURI__.core.invoke('plugin:window|start_resize_dragging',{value:direction})
+ })},event:{listen:(name,fn)=>{if(name==='state-changed')listeners.push(fn);return Promise.resolve(()=>{});}}};
 }

@@ -1,4 +1,4 @@
-# Manual acceptance — v0.5.1
+# Manual acceptance — v0.5.2
 
 Not executed by development tools. Use only with deliberate user authorization. Restore and quit the older controller first; do not run two gamma controllers together. Turn off HDR / conflicting color tools. Start with a mild value and keep header ↺ / tray **Restore original** reachable.
 
@@ -13,14 +13,22 @@ Not executed by development tools. Use only with deliberate user authorization. 
 - Compare Windows Startup Apps/Task Manager policy separately; this app does not modify its external disabled/approval switches. Verify behavior when those policies allow startup.
 - Permissions/readback failure and mismatch are injected automated tests, not real registry tampering. On an actual error, expect verified rollback/current state; unknown state disables the checkbox and reopening Settings retries the read. Never accept a checked box alone as proof of real login execution.
 
-## Existing controls
+## Popup geometry (native acceptance not performed)
+
+- First tray open: 430×340 logical popup placed within the clicked monitor's work area. Drag title/header blank space with the left mouse button; Settings, Restore, − and all inputs must not move the window. Right/middle click must not start the custom drag. A double-click's second press (`detail === 2`) is suppressed; its first primary press can still initiate dragging.
+- Drag each of four borders and four corners; cursor hints and lower-right grip are present. Native resizing respects the 430×260 logical minimum and current work area; settings/recovery/many display rows remain scrollable with readable controls.
+- Move and resize, then hide with −, Escape and tray toggle separately. Reopen from either monitor's tray: retain the adjusted geometry, not a fresh tray anchor/default size. Restart is intentionally **not** persisted.
+- Test moves between existing same-DPI monitors of different work-area dimensions, mixed DPI, negative monitor origins, work-area/taskbar changes and monitor removal while visible and while hidden. Rebind native min/max constraints when the selected work area changes; ordinary same-area dragging must not keep snapping the window back into bounds. Preserve/clamp existing geometry to the best remaining work area; native move/DPI events reconcile on the main thread, with a two-second periodic fallback and reopen check. Avoid native default/minimum inflation when first opening on a different-DPI monitor.
+- Keep dimming controls untouched; compare read-only native ramps and startup registration before/after all movement/resizing/hiding. Never launch two real controllers together or kill the live watchdog for this acceptance.
+
+## Dimming and recovery
 
 - The sole tray popup omits Open app, the eyebrow/version badge, section heading/range caption and repeated row notes. Keep display names, checkboxes, endpoint numbers, gear Settings and Restore.
 - On an actual application failure, all dimming inputs in the tray popup become disabled. Only one concise recovery notice is shown; requested numbers are marked unconfirmed. Expand Details to distinguish API acceptance from readback match/error. Do not infer a native cutoff from the requested value.
 - Restore is an explicit action, not an automatic retry. On success the notice clears and controls return to zero; only a new deliberate input can dim again. If restoration fails, keep the app open and retry Restore. A status transport failure must also prevent new requests.
 
 - Startup, reopening, second instance and status: no dimming until an actual gesture.
-- Tray popup: clean Display 1 / Display 2 labels. It remains open after clicking another window; X, Escape and the tray icon toggle hide it deliberately. No Open app button/menu or taskbar main window remains.
+- Tray popup: clean Display 1 / Display 2 labels. It remains open after clicking another window; −, Escape and the tray icon toggle hide it deliberately. No Open app button/menu or taskbar main window remains.
 - Slider drag/click uses integer steps of 1. Slider arrows / wheel add or subtract 5 from the current value (23→28), Home=0, End=90. Number typing / spinner / arrows use steps of 1; invalid fractions / out-of-range values do not apply. No modal confirmation.
 - Rapid drag: controls remain responsive; final released value wins. Restore during pending input must not be followed by late re-dimming, including a request already in flight.
 - Linked / independent / include controls: verify intended displays; zero and exclusion restore their originals.

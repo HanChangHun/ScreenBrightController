@@ -4,12 +4,13 @@ The distributable is a per-user NSIS installer. Keep `productName`, `identifier`
 
 ## Build and verify
 
-From the repository root on Windows x64 with Rust/MSVC, Node/npm and Python 3:
+From the repository root on Windows x64 with Rust/MSVC, Node/npm and Python 3.11+:
 
 ```sh
 npm --prefix app ci --ignore-scripts
 python scripts/test_packaging.py
 python scripts/test_tray_only.py
+python scripts/test_popup_geometry.py
 python scripts/test_branding.py
 cargo test --workspace --locked
 cargo fmt --all -- --check
@@ -18,6 +19,7 @@ node scripts/ui-smoke.cjs
 node scripts/ui-settings.cjs
 node scripts/ui-recovery.cjs
 node scripts/ui-copy.cjs
+node scripts/ui-geometry.cjs
 npm --prefix app run build
 python scripts/verify-release.py
 python scripts/verify-icon.py
@@ -43,7 +45,8 @@ The workspace packages are `screen-bright-controller` and `screen-bright-control
 3. Read back the Installed apps entry, version, executable hash, uninstaller and shortcut targets. Verify the installed executable against the **NSIS payload**, not blindly against the standalone build hash. Tauri CLI 2.12.1 changes the single `__TAURI_BUNDLE_TYPE_VAR_UNK` marker to `__TAURI_BUNDLE_TYPE_VAR_NSS` while bundling, then restores the standalone binary. For this unsigned release, require the marker to be unique and compare the installed bytes with exactly that one replacement (or independently extract the NSIS payload); no other byte differences are allowed. Do not modify the installed or standalone executable to make a checksum match.
 4. Run the three verification scripts with `--exe "<installed path>/ScreenBrightController.exe" --evidence-dir evidence/installed`.
 5. For refusal tests only, launch the installed executable with **`--mock-parent-wait`**, never a live dimming session. While that dedicated memory-only test process is running, run setup `/S` and uninstaller `/S _?=<install directory>`; expect exit 1618, the mock process still alive, and unchanged installed files/registration. Stop only the dedicated mock parent afterward. Repeat both operations with an authenticated, unarmed `--watchdog-mock` fixture, then close its input pipe normally. The final `_?=` path must be unquoted according to NSIS command-line syntax; do not invoke it through a shell.
-6. Launch the installed app normally. Verify only the tray icon and recovery child start: the sole popup is hidden and no main window exists. Left-click the tray to open controls and inspect the popup, then hide it with X/Escape. A normal second instance must not create/show another window. Compare read-only native ramps before/after; do not move dimming controls. Windows startup remains an explicit user opt-in in the popup's gear settings.
+6. Launch the installed app normally. Verify only the tray icon and recovery child start: the sole popup is hidden and no main window exists. Left-click the tray to open controls and inspect the popup, then hide it with −/Escape. A normal second instance must not create/show another window. Compare read-only native ramps before/after; do not move dimming controls. Windows startup remains an explicit user opt-in in the popup's gear settings.
+7. Perform the popup geometry checklist in `MANUAL_TESTS.md`: trusted header-only drag, every resize edge/corner, minimum/scrolling, retained session geometry across hide/reopen, mixed-DPI/work-area recovery, and unchanged read-only gamma/startup state. Browser memory gesture traces and pure geometry tests do not establish native WebView2/Win32 mouse behavior. Do not install or launch a new real controller over a running older version to perform this check.
 
 Uninstall cleanup only removes the app's `ScreenBrightController` Run value when it exactly matches this installed executable's quoted `--autostart` command, and preserves it during updates. Real startup toggles and actual login acceptance are separate user-authorized checks.
 

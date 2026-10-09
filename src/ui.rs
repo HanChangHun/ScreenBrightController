@@ -3,6 +3,52 @@ use crate::{dimming_percent, session::Session};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+pub type PopupRect = (i32, i32, u32, u32);
+#[derive(Clone, Debug, PartialEq)]
+pub struct PopupArea {
+    pub work: PopupRect,
+    pub scale: f64,
+}
+/// Reuse actual native geometry; the window owns session-only move/resize memory.
+pub fn popup_reopen_bounds(areas: &[PopupArea], current: PopupRect) -> Option<(usize, PopupRect)> {
+    let (x, y, width, height) = current;
+    let (x, y) = (i64::from(x), i64::from(y));
+    let index = areas
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, area)| {
+            let (left, top, w, h) = area.work;
+            let (left, top) = (i64::from(left), i64::from(top));
+            let (right, bottom) = (left + i64::from(w), top + i64::from(h));
+            let overlap_w = (right.min(x + i64::from(width)) - left.max(x)).max(0) as u64;
+            let overlap_h = (bottom.min(y + i64::from(height)) - top.max(y)).max(0) as u64;
+            let (cx, cy) = (2 * x + i64::from(width), 2 * y + i64::from(height));
+            let dx = (cx - cx.clamp(2 * left, 2 * right)).unsigned_abs() as u128;
+            let dy = (cy - cy.clamp(2 * top, 2 * bottom)).unsigned_abs() as u128;
+            (std::cmp::Reverse(overlap_w * overlap_h), dx * dx + dy * dy)
+        })?
+        .0;
+    let area = &areas[index];
+    let (left, top, work_w, work_h) = area.work;
+    let (min_w, min_h) = popup_min_size(area);
+    let width = width.max(min_w).min(work_w);
+    let height = height.max(min_h).min(work_h);
+    let x = x.clamp(i64::from(left), i64::from(left) + i64::from(work_w - width));
+    let y = y.clamp(i64::from(top), i64::from(top) + i64::from(work_h - height));
+    Some((index, (x as i32, y as i32, width, height)))
+}
+/// Minimum readable logical controls, bounded by the actual physical work area.
+pub fn popup_min_size(area: &PopupArea) -> (u32, u32) {
+    let scale = if area.scale.is_finite() && area.scale > 0.0 {
+        area.scale
+    } else {
+        1.0
+    };
+    (
+        ((430.0 * scale).round() as u32).min(area.work.2),
+        ((260.0 * scale).round() as u32).min(area.work.3),
+    )
+}
 /// Coordinates are physical throughout; only the desired logical size/gap is DPI-scaled.
 pub fn popup_bounds(
     work: (i32, i32, u32, u32),

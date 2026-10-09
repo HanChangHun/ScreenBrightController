@@ -2,7 +2,7 @@
 use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     session::Session,
-    ui::{popup_bounds, UiSession},
+    ui::{popup_bounds, popup_min_size, popup_reopen_bounds, PopupArea, UiSession},
 };
 use std::sync::Mutex;
 static STARTUP_LOCK: Mutex<()> = Mutex::new(());
@@ -37,6 +37,21 @@ use tauri::{
     Emitter, Manager,
 };
 type State = Mutex<Result<UiSession, String>>;
+#[derive(Default)]
+struct PopupPlacement {
+    initialized: bool,
+    areas: Vec<PopupArea>,
+    selected_area: Option<PopupArea>,
+    reconciling: bool,
+}
+impl PopupPlacement {
+    fn needs_reconcile(&self, areas: &[PopupArea], selected: &PopupArea, force: bool) -> bool {
+        !self.reconciling
+            && self.initialized
+            && (force || self.areas != areas || self.selected_area.as_ref() != Some(selected))
+    }
+}
+type GeometryState = Mutex<PopupPlacement>;
 const TRAY_ID: &str = "screen-bright-controller";
 fn tray_tooltip(attention: bool) -> &'static str {
     if attention {
@@ -149,30 +164,114 @@ fn report(app: &tauri::AppHandle, error: String) {
     refresh_attention(app);
     let _ = app.emit("display-error", error);
 }
+/// Native window geometry is session memory. Only first show anchors to the tray.
+/// Reopen/monitor/topology/DPI reconciliation never enters the display session or emits control events.
+fn prepare_popup(
+    app: &tauri::AppHandle,
+    click: Option<tauri::PhysicalPosition<f64>>,
+    force: bool,
+) -> Result<(), String> {
+    let areas: Vec<_> = app
+        .available_monitors()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|monitor| {
+            let work = monitor.work_area();
+            PopupArea {
+                work: (
+                    work.position.x,
+                    work.position.y,
+                    work.size.width,
+                    work.size.height,
+                ),
+                scale: monitor.scale_factor(),
+            }
+        })
+        .collect();
+    let initialized = {
+        let placement = app.state::<GeometryState>();
+        let guard = placement.lock().map_err(|_| "popup geometry lock failed")?;
+        if guard.reconciling || (click.is_none() && !guard.initialized) {
+            return Ok(());
+        }
+        guard.initialized
+    }; // Never hold this lock while window setters may dispatch native events.
+    let w = app.get_webview_window("popup").ok_or("popup unavailable")?;
+    let position = w.outer_position().map_err(|e| e.to_string())?;
+    let size = w.inner_size().map_err(|e| e.to_string())?;
+    let current = if initialized {
+        (position.x, position.y, size.width, size.height)
+    } else {
+        let click = click.ok_or("first popup requires tray position")?;
+        let monitor = app
+            .monitor_from_point(click.x, click.y)
+            .map_err(|e| e.to_string())?
+            .ok_or("tray monitor unavailable")?;
+        let work = monitor.work_area();
+        popup_bounds(
+            (
+                work.position.x,
+                work.position.y,
+                work.size.width,
+                work.size.height,
+            ),
+            (click.x, click.y),
+            monitor.scale_factor(),
+        )
+    };
+    let (index, (x, y, width, height)) =
+        popup_reopen_bounds(&areas, current).ok_or("popup work area unavailable")?;
+    let area = &areas[index];
+    {
+        let placement = app.state::<GeometryState>();
+        let mut guard = placement.lock().map_err(|_| "popup geometry lock failed")?;
+        if click.is_none() && !guard.needs_reconcile(&areas, area, force) {
+            return Ok(());
+        }
+        // Setters can dispatch Moved/DPI events synchronously. Suppress reentry,
+        // but release the mutex before any native setter to avoid deadlocks.
+        guard.reconciling = true;
+    }
+    let result = (|| {
+        let (min_w, min_h) = popup_min_size(area);
+        // Clear old constraints before applying smaller work areas / new DPI minimums.
+        w.set_min_size(None::<tauri::PhysicalSize<u32>>)
+            .map_err(|e| e.to_string())?;
+        w.set_max_size(None::<tauri::PhysicalSize<u32>>)
+            .map_err(|e| e.to_string())?;
+        // Physical constraints are converted using the window's current DPI by the runtime.
+        // Move first, then bind constraints and re-read size after any native DPI adjustment.
+        if position.x != x || position.y != y {
+            w.set_position(tauri::PhysicalPosition::new(x, y))
+                .map_err(|e| e.to_string())?;
+        }
+        w.set_min_size(Some(tauri::PhysicalSize::new(min_w, min_h)))
+            .map_err(|e| e.to_string())?;
+        w.set_max_size(Some(tauri::PhysicalSize::new(area.work.2, area.work.3)))
+            .map_err(|e| e.to_string())?;
+        let actual_size = w.inner_size().map_err(|e| e.to_string())?;
+        if actual_size.width != width || actual_size.height != height {
+            w.set_size(tauri::PhysicalSize::new(width, height))
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })();
+    let placement = app.state::<GeometryState>();
+    let mut guard = placement.lock().map_err(|_| "popup geometry lock failed")?;
+    guard.reconciling = false;
+    if result.is_ok() {
+        guard.initialized = true;
+        guard.selected_area = Some(area.clone());
+        guard.areas = areas;
+    }
+    result
+}
 fn show_popup(
     app: &tauri::AppHandle,
     position: tauri::PhysicalPosition<f64>,
 ) -> Result<(), String> {
+    prepare_popup(app, Some(position), false)?;
     let w = app.get_webview_window("popup").ok_or("popup unavailable")?;
-    let monitor = app
-        .monitor_from_point(position.x, position.y)
-        .map_err(|e| e.to_string())?
-        .ok_or("tray monitor unavailable")?;
-    let work = monitor.work_area();
-    let (x, y, width, height) = popup_bounds(
-        (
-            work.position.x,
-            work.position.y,
-            work.size.width,
-            work.size.height,
-        ),
-        (position.x, position.y),
-        monitor.scale_factor(),
-    );
-    w.set_position(tauri::PhysicalPosition::new(x, y))
-        .map_err(|e| e.to_string())?;
-    w.set_size(tauri::PhysicalSize::new(width, height))
-        .map_err(|e| e.to_string())?;
     w.show().map_err(|e| e.to_string())?;
     w.set_focus().map_err(|e| e.to_string())?;
     let _ = app.emit("state-changed", ());
@@ -209,6 +308,7 @@ fn main() {
     let demo = mode == LaunchMode::Demo;
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+        .manage(GeometryState::default())
         .manage(Mutex::new(Err::<UiSession, String>(
             "starting read-only snapshot".into(),
         )))
@@ -232,6 +332,12 @@ fn main() {
                 let mut last_error = String::new();
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(2));
+                    let handle = worker.clone();
+                    let _ = worker.run_on_main_thread(move || {
+                        if let Err(error) = prepare_popup(&handle, None, false) {
+                            eprintln!("Popup geometry: {error}");
+                        }
+                    });
                     let result = with_session(&worker.state::<State>(), UiSession::heartbeat);
                     refresh_attention(&worker);
                     match result {
@@ -303,6 +409,21 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "popup"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
+                )
+            {
+                let force = matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. });
+                let app = window.app_handle().clone();
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Err(error) = prepare_popup(&handle, None, force) {
+                        eprintln!("Popup geometry: {error}");
+                    }
+                });
+            }
             if window.label() == "popup" && popup_should_hide(event) {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -328,6 +449,69 @@ fn main() {
 #[cfg(test)]
 mod popup_policy_tests {
     use super::*;
+    #[test]
+    fn popup_anchors_once_and_reconciles_topology_or_explicit_reopen() {
+        let area = PopupArea {
+            work: (0, 0, 1920, 1040),
+            scale: 1.0,
+        };
+        let mut placement = PopupPlacement::default();
+        assert!(!placement.needs_reconcile(std::slice::from_ref(&area), &area, false));
+        placement.initialized = true;
+        placement.areas = vec![area.clone()];
+        placement.selected_area = Some(area.clone());
+        assert!(!placement.needs_reconcile(std::slice::from_ref(&area), &area, false));
+        assert!(placement.needs_reconcile(std::slice::from_ref(&area), &area, true));
+        let moved_area = PopupArea {
+            work: (-1920, 0, 1920, 1040),
+            scale: 1.5,
+        };
+        assert!(placement.needs_reconcile(std::slice::from_ref(&moved_area), &moved_area, false));
+        assert!(!placement.needs_reconcile(std::slice::from_ref(&area), &area, false));
+    }
+    #[test]
+    fn moving_between_existing_same_dpi_work_areas_rebinds_constraints_once() {
+        let areas = vec![
+            PopupArea {
+                work: (0, 0, 1920, 1040),
+                scale: 1.0,
+            },
+            PopupArea {
+                work: (1920, 0, 1280, 720),
+                scale: 1.0,
+            },
+        ];
+        let mut placement = PopupPlacement {
+            initialized: true,
+            areas: areas.clone(),
+            selected_area: Some(areas[0].clone()),
+            ..Default::default()
+        };
+        let (first, _) = popup_reopen_bounds(&areas, (100, 100, 720, 600)).unwrap();
+        let (same, _) = popup_reopen_bounds(&areas, (200, 150, 720, 600)).unwrap();
+        assert_eq!(first, same);
+        assert!(!placement.needs_reconcile(&areas, &areas[same], false));
+        let (next, bounds) = popup_reopen_bounds(&areas, (2200, 150, 1500, 900)).unwrap();
+        assert_ne!(first, next);
+        assert_eq!(areas[first].scale, areas[next].scale);
+        assert_eq!(bounds, (1920, 0, 1280, 720));
+        assert!(
+            placement.needs_reconcile(&areas, &areas[next], false),
+            "an existing same-DPI destination with different work-area dimensions needs new constraints"
+        );
+        placement.selected_area = Some(areas[next].clone());
+        // A repeated native Moved event / periodic poll must not snap same-monitor dragging.
+        let (same, clamped) = popup_reopen_bounds(&areas, (2250, 650, 720, 600)).unwrap();
+        assert_eq!(same, next);
+        assert_eq!(clamped, (2250, 120, 720, 600));
+        assert!(!placement.needs_reconcile(&areas, &areas[same], false));
+        assert!(placement.needs_reconcile(&areas, &areas[first], false));
+        placement.reconciling = true;
+        assert!(!placement.needs_reconcile(&areas, &areas[first], false));
+        assert!(!placement.needs_reconcile(&areas, &areas[first], true));
+        placement.reconciling = false;
+        assert!(placement.needs_reconcile(&areas, &areas[first], false));
+    }
     #[test]
     fn stale_rejection_after_restore_does_not_mark_attention() {
         let state = Mutex::new(Ok(UiSession::new(Session::demo().unwrap()).unwrap()));

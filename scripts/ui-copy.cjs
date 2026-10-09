@@ -12,6 +12,8 @@ for (const file of ['index.html']) {
   check(source.includes('aria-label="Display dimming controls"'), 'Keep the accessible section name');
   check(source.includes('aria-label="Restore original"'), 'Keep recovery accessible');
   check(source.includes('id="recover"'), 'Provide an explicit recovery action');
+  check(/id="close-popup"[^>]*>−<\/button>/.test(source), 'Use a minus sign for hiding, not a close X');
+  check(/id="close-popup"[^>]*aria-label="Hide popup"/.test(source), 'Retain accessible hide behavior');
 }
 const source = fs.readFileSync(path.join(__dirname, '../app/ui/app.js'), 'utf8');
 for (const text of ['One value for included displays', 'control-note', "?'Linked':"]) {
