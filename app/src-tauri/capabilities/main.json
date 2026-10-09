@@ -1,1 +1,1 @@
-{"identifier": "main", "description": "Local main and tray popup", "windows": ["main", "popup"], "permissions": ["core:default"]}
+{"identifier": "tray", "description": "Local tray popup only", "windows": ["popup"], "permissions": ["core:default"]}

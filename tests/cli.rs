@@ -1,6 +1,6 @@
 #[test]
 fn actual_startup_and_exit_path_are_read_only() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_gamma-cli"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_screen-bright-controller-cli"))
         .arg("--startup-check")
         .output()
         .unwrap();
@@ -17,7 +17,7 @@ fn actual_startup_and_exit_path_are_read_only() {
 #[test]
 fn process_death_restores_with_pipe_still_open() {
     use std::io::{BufRead, BufReader, Write};
-    let exe = env!("CARGO_BIN_EXE_gamma-cli");
+    let exe = env!("CARGO_BIN_EXE_screen-bright-controller-cli");
     let mut parent = std::process::Command::new(exe)
         .arg("--mock-parent-wait")
         .stdout(std::process::Stdio::piped())
@@ -30,8 +30,14 @@ fn process_death_restores_with_pipe_still_open() {
     assert_eq!(ready.trim(), "READY");
     let mut guard = std::process::Command::new(exe)
         .arg("--watchdog-mock")
-        .env("GAMMA_WATCHDOG_TOKEN", "test-owned-secret")
-        .env("GAMMA_WATCHDOG_PARENT", parent.id().to_string())
+        .env(
+            "SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN",
+            "test-owned-secret",
+        )
+        .env(
+            "SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT",
+            parent.id().to_string(),
+        )
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -67,7 +73,7 @@ fn process_death_restores_with_pipe_still_open() {
 }
 #[test]
 fn real_cli_mock_smoke_uses_independent_watchdog_without_display_writes() {
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_gamma-cli"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_screen-bright-controller-cli"))
         .arg("--self-test")
         .output()
         .unwrap();

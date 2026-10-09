@@ -113,14 +113,14 @@ fn response<D: GuardBackend>(g: &Guard<D>, error: Option<String>, snapshot: bool
     }
 }
 pub fn serve(mock: bool) -> Result<(), String> {
-    let secret = std::env::var("GAMMA_WATCHDOG_TOKEN")
+    let secret = std::env::var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN")
         .map_err(|_| "watchdog must be launched by application with owned pipes")?;
-    let pid = std::env::var("GAMMA_WATCHDOG_PARENT")
+    let pid = std::env::var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT")
         .map_err(|_| "missing parent")?
         .parse::<u32>()
         .map_err(|_| "invalid parent")?;
-    std::env::remove_var("GAMMA_WATCHDOG_TOKEN");
-    std::env::remove_var("GAMMA_WATCHDOG_PARENT");
+    std::env::remove_var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN");
+    std::env::remove_var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT");
     let parent = Parent::open(pid)?;
     if mock {
         serve_backend(Mock::default(), secret, parent)
@@ -240,8 +240,11 @@ impl Link {
             } else {
                 "--watchdog"
             })
-            .env("GAMMA_WATCHDOG_TOKEN", &secret)
-            .env("GAMMA_WATCHDOG_PARENT", std::process::id().to_string())
+            .env("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN", &secret)
+            .env(
+                "SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT",
+                std::process::id().to_string(),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

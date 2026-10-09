@@ -27,6 +27,13 @@ pub struct Control {
     pub dim: i64,
     pub enabled: bool,
 }
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Recovery {
+    Apply,
+    Safety,
+    Restore,
+}
 pub struct UiSession {
     pub session: Session,
     pub controls: BTreeMap<String, Control>,
@@ -34,6 +41,7 @@ pub struct UiSession {
     pub generation: u64,
     pub revision: u64,
     live_blocked: bool,
+    recovery: Option<Recovery>,
     pub outcomes: Value,
     pub message: String,
 }
@@ -63,9 +71,14 @@ impl UiSession {
             generation: 0,
             revision: 0,
             live_blocked: false,
+            recovery: None,
             outcomes: json!([]),
             message: "No changes applied.".into(),
         })
+    }
+    /// Authoritative recovery state; read-only and independent of request errors.
+    pub fn needs_attention(&self) -> bool {
+        self.live_blocked || self.recovery.is_some()
     }
     pub fn status(&mut self) -> Result<Value, String> {
         let mut status = self.session.status()?;
@@ -73,6 +86,8 @@ impl UiSession {
         status["revision"] = json!(self.revision);
         status["controls"] = json!(self.controls);
         status["consent"] = json!(self.consent);
+        status["live_blocked"] = json!(self.live_blocked);
+        status["recovery"] = json!(self.recovery);
         status["outcomes"] = self.outcomes.clone();
         status["message"] = json!(self.message);
         status["operation"] = json!(if self.session.is_continuous() {
@@ -119,6 +134,7 @@ impl UiSession {
         let result = self.apply("continuous");
         if let Err(ref e) = result {
             self.live_blocked = true;
+            self.recovery = Some(Recovery::Apply);
             self.generation += 1;
             self.message = format!("Live update stopped: {e}. Restore before retrying.");
         }
@@ -133,6 +149,7 @@ impl UiSession {
     }
     pub fn heartbeat(&mut self) -> Result<(), String> {
         if let Err(e) = self.session.heartbeat() {
+            self.recovery = Some(Recovery::Safety);
             self.message = format!("Safety stop: {e}. Restore before retrying.");
             self.consent = false;
             self.live_blocked = true;
@@ -259,6 +276,7 @@ impl UiSession {
         match self.session.restore() {
             Ok(()) => {
                 self.live_blocked = false;
+                self.recovery = None;
                 for control in self.controls.values_mut() {
                     control.dim = 0;
                 }
@@ -267,6 +285,7 @@ impl UiSession {
                 Ok(())
             }
             Err(e) => {
+                self.recovery = Some(Recovery::Restore);
                 self.message = format!("Restore failed: {e}. Keep the app open and retry.");
                 Err(e)
             }

@@ -10,7 +10,7 @@ class IconAssets(unittest.TestCase):
         with Image.open(ICONS / 'icon.ico') as im:
             self.assertTrue({(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)} <= im.ico.sizes())
     def test_transparent_monitor_and_diagonal(self):
-        with Image.open(ICONS / 'dimmer.png') as im:
+        with Image.open(ICONS / 'screen-bright-controller.png') as im:
             self.assertEqual(im.size, (256,256))
             self.assertEqual(im.convert('RGBA').getpixel((0,0))[3], 0)
             self.assertGreater(sum(im.getpixel((60,60))[:3]), sum(im.getpixel((190,150))[:3]))

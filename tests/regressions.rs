@@ -1,4 +1,4 @@
-use gamma_dimmer::controller::*;
+use screen_bright_controller::controller::*;
 #[test]
 fn restoration_failure_preserves_original_and_allows_retry() {
     let mut c = Controller::new(Mock {

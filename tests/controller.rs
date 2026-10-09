@@ -1,4 +1,4 @@
-use gamma_dimmer::controller::*;
+use screen_bright_controller::controller::*;
 #[test]
 fn deliberate_preview_arms_before_write_and_reports_readback() {
     let mut c = Controller::new(Mock::default()).unwrap();

@@ -12,7 +12,7 @@ if not exe.is_file():
 evidence = options.evidence_dir.resolve()
 evidence.mkdir(parents=True, exist_ok=True)
 secret = secrets.token_hex(32)
-env = dict(os.environ, GAMMA_WATCHDOG_TOKEN=secret, GAMMA_WATCHDOG_PARENT=str(os.getpid()))
+env = dict(os.environ, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN=secret, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT=str(os.getpid()))
 guard = subprocess.Popen([str(exe), '--watchdog-mock'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
 def request(payload):
     guard.stdin.write((json.dumps(payload)+'\n').encode())

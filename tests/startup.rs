@@ -1,4 +1,6 @@
-use gamma_dimmer::startup::{get, launch_mode, registration_command, set, LaunchMode, Registry};
+use screen_bright_controller::startup::{
+    get, launch_mode, registration_command, set, LaunchMode, Registry,
+};
 use std::cell::Cell;
 struct Fault {
     inner: Memory,
@@ -95,7 +97,7 @@ fn failed_verification_rolls_back() {
 }
 #[test]
 fn startup_arguments_are_exact_and_never_route_to_watchdog() {
-    assert_eq!(launch_mode(&[]), LaunchMode::Main);
+    assert_eq!(launch_mode(&[]), LaunchMode::Tray);
     assert_eq!(launch_mode(&["--autostart".into()]), LaunchMode::Tray);
     assert_eq!(launch_mode(&["--demo".into()]), LaunchMode::Demo);
     for arg in ["--watchdog", "--diagnose", "--self-test"] {
@@ -110,8 +112,10 @@ fn startup_arguments_are_exact_and_never_route_to_watchdog() {
         "\"C:\\Apps With Spaces\\ScreenBrightController.exe\" --autostart"
     );
     assert!(registration_command("bad\"path.exe").is_err());
-    let mut session =
-        gamma_dimmer::ui::UiSession::new(gamma_dimmer::session::Session::demo().unwrap()).unwrap();
+    let mut session = screen_bright_controller::ui::UiSession::new(
+        screen_bright_controller::session::Session::demo().unwrap(),
+    )
+    .unwrap();
     assert_eq!(session.status().unwrap()["armed"], serde_json::json!([]));
     session.heartbeat().unwrap();
     assert_eq!(session.status().unwrap()["controls"]["master"]["dim"], 0);

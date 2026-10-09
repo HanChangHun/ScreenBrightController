@@ -58,7 +58,7 @@ guard = None
 try:
     assert get(lines(parent.stdout)).strip() == b'READY'
     secret = secrets.token_hex(32)
-    env = dict(os.environ, GAMMA_WATCHDOG_TOKEN=secret, GAMMA_WATCHDOG_PARENT=str(parent.pid))
+    env = dict(os.environ, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN=secret, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT=str(parent.pid))
     guard = subprocess.Popen([str(app), '--watchdog-mock'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     responses = lines(guard.stdout)
     def request(payload):

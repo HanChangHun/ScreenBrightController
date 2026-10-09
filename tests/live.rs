@@ -1,5 +1,5 @@
 #![cfg(windows)]
-use gamma_dimmer::{session::Session, ui::UiSession};
+use screen_bright_controller::{session::Session, ui::UiSession};
 #[test]
 fn live_gesture_applies_without_consent_and_restore_rejects_old_generation() {
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();

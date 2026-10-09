@@ -1,4 +1,4 @@
-use gamma_dimmer::{
+use screen_bright_controller::{
     controller::{Controller, Mock},
     guard::Guard,
 };
@@ -37,7 +37,7 @@ fn continuous_update_preserves_original_zero_restores_and_idle_zero_no_write() {
 }
 #[test]
 fn ui_continuous_close_hides_exclusion_restores_and_restore_resets_values() {
-    use gamma_dimmer::{session::Session, ui::UiSession};
+    use screen_bright_controller::{session::Session, ui::UiSession};
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
     ui.set_control("master", 40, true).unwrap();
     assert!(ui.apply("continuous").is_err());

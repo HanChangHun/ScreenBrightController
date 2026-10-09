@@ -25,7 +25,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
   },
   Some("--diagnose")=>print(json!({"mode":"read-only","native_display_writes":0,"hdr_status":"not detected; legacy gamma undefined under HDR","visible_effect_verified":false,"monitors":Native.snapshot()?})),
   Some("--self-test")|Some("--mock")=>self_test(),
-  _=>Err("Use --diagnose (read-only), --self-test / --mock (memory-only), or launch gamma-dimmer-app.exe for UI. No CLI applies real dimming.".into())
+  _=>Err("Use --diagnose (read-only), --self-test / --mock (memory-only), or launch ScreenBrightController.exe for UI. No CLI applies real dimming.".into())
  }
 }
 fn self_test() -> Result<(), String> {

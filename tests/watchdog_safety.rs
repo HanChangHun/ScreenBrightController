@@ -1,4 +1,4 @@
-use gamma_dimmer::{controller::Mock, guard::Guard, watchdog::Request};
+use screen_bright_controller::{controller::Mock, guard::Guard, watchdog::Request};
 #[test]
 fn watchdog_protocol_never_accepts_external_ramp_or_snapshot_file() {
     for payload in [

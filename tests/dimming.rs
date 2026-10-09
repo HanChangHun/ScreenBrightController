@@ -1,22 +1,22 @@
-use gamma_dimmer::scale;
+use screen_bright_controller::scale;
 #[test]
 fn dimming_conversion_accepts_every_integer() {
     for dim in 0..=90 {
         assert_eq!(
-            gamma_dimmer::dimming_percent(dim).unwrap() as i64,
+            screen_bright_controller::dimming_percent(dim).unwrap() as i64,
             100 - dim
         );
     }
     for dim in [-5, -1, 91, 95, 100, 256] {
         assert!(
-            gamma_dimmer::dimming_percent(dim).is_err(),
+            screen_bright_controller::dimming_percent(dim).is_err(),
             "accepted {dim}"
         );
     }
 }
 #[test]
 fn unchanged_preview_does_not_arm_write_or_restore() {
-    use gamma_dimmer::controller::{Controller, Mock};
+    use screen_bright_controller::controller::{Controller, Mock};
     let mut c = Controller::new(Mock::default()).unwrap();
     c.preview(&["mock-1".into()], 100, 15, true).unwrap();
     c.restore_all().unwrap();

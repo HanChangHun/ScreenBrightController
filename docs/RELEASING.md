@@ -9,11 +9,15 @@ From the repository root on Windows x64 with Rust/MSVC, Node/npm and Python 3:
 ```sh
 npm --prefix app ci --ignore-scripts
 python scripts/test_packaging.py
+python scripts/test_tray_only.py
+python scripts/test_branding.py
 cargo test --workspace --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 node scripts/ui-smoke.cjs
 node scripts/ui-settings.cjs
+node scripts/ui-recovery.cjs
+node scripts/ui-copy.cjs
 npm --prefix app run build
 python scripts/verify-release.py
 python scripts/verify-icon.py
@@ -30,6 +34,8 @@ Outputs:
 
 For a version bump, align `Cargo.toml`, `app/src-tauri/Cargo.toml`, `app/src-tauri/tauri.conf.json` and `app/package.json`, and refresh their lockfiles using Cargo/npm. Do not alter the supplied icon or gamma behavior as part of packaging.
 
+The workspace packages are `screen-bright-controller` and `screen-bright-controller-tray`; the optional diagnostic target is `screen-bright-controller-cli`. Internal watchdog environment names use `SCREEN_BRIGHT_CONTROLLER_WATCHDOG_`, and native/frontend error events use `display-error`. Keep both ends and the memory verification fixtures in sync. A source-package rename must not change the public installation identity. Reference PNG checks require Pillow (`uv run --with pillow python scripts/test_icon_assets.py` when uv is available); do not run the icon generator over the supplied ICO.
+
 ## Install acceptance
 
 1. Confirm no real app/watchdog is running. Use tray **Restore and quit** if necessary.
@@ -37,7 +43,7 @@ For a version bump, align `Cargo.toml`, `app/src-tauri/Cargo.toml`, `app/src-tau
 3. Read back the Installed apps entry, version, executable hash, uninstaller and shortcut targets. Verify the installed executable against the **NSIS payload**, not blindly against the standalone build hash. Tauri CLI 2.12.1 changes the single `__TAURI_BUNDLE_TYPE_VAR_UNK` marker to `__TAURI_BUNDLE_TYPE_VAR_NSS` while bundling, then restores the standalone binary. For this unsigned release, require the marker to be unique and compare the installed bytes with exactly that one replacement (or independently extract the NSIS payload); no other byte differences are allowed. Do not modify the installed or standalone executable to make a checksum match.
 4. Run the three verification scripts with `--exe "<installed path>/ScreenBrightController.exe" --evidence-dir evidence/installed`.
 5. For refusal tests only, launch the installed executable with **`--mock-parent-wait`**, never a live dimming session. While that dedicated memory-only test process is running, run setup `/S` and uninstaller `/S _?=<install directory>`; expect exit 1618, the mock process still alive, and unchanged installed files/registration. Stop only the dedicated mock parent afterward. Repeat both operations with an authenticated, unarmed `--watchdog-mock` fixture, then close its input pipe normally. The final `_?=` path must be unquoted according to NSIS command-line syntax; do not invoke it through a shell.
-6. Launch the installed app normally. Verify its own main window and recovery child; compare read-only native ramps before/after. Do not move any dimming controls. Windows startup remains an explicit user opt-in.
+6. Launch the installed app normally. Verify only the tray icon and recovery child start: the sole popup is hidden and no main window exists. Left-click the tray to open controls and inspect the popup, then hide it with X/Escape. A normal second instance must not create/show another window. Compare read-only native ramps before/after; do not move dimming controls. Windows startup remains an explicit user opt-in in the popup's gear settings.
 
 Uninstall cleanup only removes the app's `ScreenBrightController` Run value when it exactly matches this installed executable's quoted `--autostart` command, and preserves it during updates. Real startup toggles and actual login acceptance are separate user-authorized checks.
 

@@ -4,14 +4,13 @@ use serde::Serialize;
 pub mod windows;
 #[derive(Debug, PartialEq, Eq)]
 pub enum LaunchMode {
-    Main,
     Demo,
     Tray,
     Cli,
 }
 pub fn launch_mode(args: &[String]) -> LaunchMode {
     match args {
-        [] => LaunchMode::Main,
+        [] => LaunchMode::Tray,
         [arg] if arg == "--autostart" => LaunchMode::Tray,
         [arg] if arg == "--demo" => LaunchMode::Demo,
         _ => LaunchMode::Cli,
