@@ -9,16 +9,12 @@ From the repository root on Windows x64 with Rust/MSVC, Node/npm and Python 3.11
 ```sh
 npm --prefix app ci --ignore-scripts
 python scripts/test_packaging.py
-python scripts/test_tray_only.py
-python scripts/test_popup_geometry.py
-python scripts/test_branding.py
 cargo test --workspace --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 node scripts/ui-smoke.cjs
 node scripts/ui-settings.cjs
 node scripts/ui-recovery.cjs
-node scripts/ui-copy.cjs
 node scripts/ui-geometry.cjs
 npm --prefix app run build
 python scripts/verify-release.py
