@@ -1,4 +1,4 @@
-use crate::controller::{Driver, Monitor};
+use crate::controller::{monitor, Driver, Monitor};
 use std::collections::BTreeMap;
 pub struct Guard<D: Driver> {
     pub driver: D,
@@ -26,10 +26,7 @@ impl<D: Driver> Guard<D> {
         if self.armed.contains_key(id) {
             return Err("already armed".into());
         }
-        let original = self
-            .monitors
-            .iter()
-            .find(|m| m.id == id)
+        let original = monitor(&self.monitors, id)
             .and_then(|m| m.original.as_ref())
             .ok_or("unknown display or unreadable original")?;
         crate::scale(original, 100)?;
@@ -72,18 +69,11 @@ impl<D: Driver> Guard<D> {
         crate::controller::reset_baseline(&mut self.driver, &mut self.monitors, id)
     }
     pub fn restore(&mut self, id: &str) -> Result<(), String> {
-        if !self.monitors.iter().any(|m| m.id == id) {
-            return Err("unknown display".into());
-        }
+        let monitor = monitor(&self.monitors, id).ok_or("unknown display")?;
         if !self.armed.contains_key(id) {
             return Ok(());
         }
-        let original = self
-            .monitors
-            .iter()
-            .find(|m| m.id == id)
-            .and_then(|m| m.original.as_ref())
-            .ok_or("missing owned original")?;
+        let original = monitor.original.as_ref().ok_or("missing owned original")?;
         self.driver.restore(id, original)?;
         self.armed.remove(id);
         self.continuous.remove(id);

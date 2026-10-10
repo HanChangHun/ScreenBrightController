@@ -22,6 +22,9 @@ pub trait Driver {
         self.restore(id, linear)
     }
 }
+pub fn monitor<'a>(monitors: &'a [Monitor], id: &str) -> Option<&'a Monitor> {
+    monitors.iter().find(|m| m.id == id)
+}
 /// User-initiated recovery from a dimmed saved original (see `looks_dimmed`); never automatic.
 pub fn reset_baseline(
     driver: &mut impl Driver,
@@ -60,28 +63,20 @@ impl<D: Driver> Controller<D> {
         ids: &[String],
         percent: u8,
     ) -> Result<Vec<Outcome>, String> {
-        let mut unique = BTreeSet::new();
+        // Validate every target before the first arm or write.
+        let mut targets: Vec<(&String, Ramp)> = vec![];
         for id in ids {
-            if !unique.insert(id) {
+            if targets.iter().any(|(t, _)| *t == id) {
                 return Err("duplicate display".into());
             }
-            let original = self
-                .monitors
-                .iter()
-                .find(|m| &m.id == id)
-                .and_then(|m| m.original.as_ref())
+            let original = monitor(&self.monitors, id)
+                .and_then(|m| m.original.clone())
                 .ok_or("unknown display")?;
-            crate::scale(original, percent)?;
+            crate::scale(&original, percent)?;
+            targets.push((id, original));
         }
         let mut out = vec![];
-        for id in ids {
-            let original = self
-                .monitors
-                .iter()
-                .find(|m| &m.id == id)
-                .and_then(|m| m.original.as_ref())
-                .unwrap()
-                .clone();
+        for (id, original) in targets {
             if percent == 100 {
                 self.restore_target(id)?;
                 continue;
@@ -163,10 +158,7 @@ impl<D: Driver> Controller<D> {
         if !self.changed.contains(id) {
             return Ok(());
         }
-        let original = self
-            .monitors
-            .iter()
-            .find(|m| m.id == id)
+        let original = monitor(&self.monitors, id)
             .and_then(|m| m.original.as_ref())
             .ok_or("unknown display")?;
         self.driver.restore(id, original)?;
@@ -181,22 +173,12 @@ impl<D: Driver> Controller<D> {
         reset_baseline(&mut self.driver, &mut self.monitors, id)
     }
     pub fn restore_all(&mut self) -> Result<(), String> {
-        let mut errors = vec![];
-        for id in self.changed.iter().cloned().collect::<Vec<_>>() {
-            let original = self
-                .monitors
-                .iter()
-                .find(|m| m.id == id)
-                .and_then(|m| m.original.as_ref())
-                .unwrap();
-            match self.driver.restore(&id, original) {
-                Ok(()) => {
-                    self.changed.remove(&id);
-                    self.expected.remove(&id);
-                }
-                Err(e) => errors.push(format!("{id}: {e}")),
-            }
-        }
+        let errors: Vec<String> = self
+            .changed
+            .clone()
+            .into_iter()
+            .filter_map(|id| self.restore_target(&id).err().map(|e| format!("{id}: {e}")))
+            .collect();
         if errors.is_empty() {
             Ok(())
         } else {

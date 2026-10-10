@@ -1,4 +1,4 @@
-use crate::controller::{Driver, Monitor};
+use crate::controller::{monitor, Driver, Monitor};
 use crate::Ramp;
 use std::{ffi::c_void, ptr};
 #[repr(C)]
@@ -111,7 +111,7 @@ impl Driver for Native {
     fn restore(&mut self, id: &str, original: &Ramp) -> Result<(), String> {
         // Skip disconnected IDs. Windows may recycle display IDs after hotplug;
         // hotplug/replacement while dimmed is unsupported (see README).
-        if !self.snapshot()?.iter().any(|m| m.id == id) {
+        if monitor(&self.snapshot()?, id).is_none() {
             return Err("display disconnected; original retained for retry".into());
         }
         if !self.set(id, original)? {
