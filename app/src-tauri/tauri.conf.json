@@ -40,7 +40,7 @@
     "windows": {
       "allowDowngrades": false,
       "webviewInstallMode": {
-        "type": "downloadBootstrapper",
+        "type": "embedBootstrapper",
         "silent": true
       },
       "nsis": {

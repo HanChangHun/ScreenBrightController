@@ -19,7 +19,7 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse(bundle["createUpdaterArtifacts"])
         self.assertEqual(bundle["icon"], ["icons/icon.png", "icons/icon.ico"])
         self.assertEqual(bundle["windows"]["webviewInstallMode"], {
-            "type": "downloadBootstrapper", "silent": True,
+            "type": "embedBootstrapper", "silent": True,
         })
 
     def test_installer_refuses_running_apps_without_terminating_them(self):

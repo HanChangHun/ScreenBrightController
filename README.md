@@ -18,7 +18,7 @@ Dim individual monitors or all displays together from the Windows system tray.
 2. Launch from the Start menu, then left-click the tray icon to open the controls.
 3. Adjust the sliders. Use **Restore original** to reset, or right-click the tray icon and choose **Restore and quit** to exit.
 
-Requires Windows x64. The installer needs no administrator rights and installs WebView2 if missing. Launching does not apply dimming; hiding the popup keeps active dimming running.
+Requires Windows x64. The installer needs no administrator rights and installs WebView2 if missing, using Microsoft's bootstrapper bundled in the installer (internet connection required). Launching does not apply dimming; hiding the popup keeps active dimming running.
 
 ## Important notes
 
