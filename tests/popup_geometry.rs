@@ -1,5 +1,5 @@
 //! Session geometry is separate from display controls; these tests are memory only.
-use screen_bright_controller::ui::{popup_reopen_bounds, PopupArea};
+use screen_bright_controller::ui::{popup_bounds, popup_reopen_bounds, PopupArea};
 
 #[test]
 fn reopening_keeps_native_user_geometry_instead_of_tray_defaults() {
@@ -51,4 +51,16 @@ fn screen_changes_clamp_to_the_best_available_work_area_without_resetting_size()
         Some((0, (10, -300, 300, 200)))
     );
     assert_eq!(popup_reopen_bounds(&[], (0, 0, 720, 600)), None);
+}
+
+#[test]
+fn popup_clamps_physical_work_area_at_mixed_dpi_and_negative_origin() {
+    assert_eq!(
+        popup_bounds((-1920, 0, 1920, 1040), (-10.0, 1030.0), 1.5),
+        (-673, 502, 645, 510)
+    );
+    assert_eq!(
+        popup_bounds((0, 40, 300, 400), (2.0, 45.0), 2.0),
+        (0, 40, 300, 400)
+    );
 }

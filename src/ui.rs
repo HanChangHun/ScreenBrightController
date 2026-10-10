@@ -36,33 +36,28 @@ pub fn popup_reopen_bounds(areas: &[PopupArea], current: PopupRect) -> Option<(u
     let y = y.clamp(i64::from(top), i64::from(top) + i64::from(work_h - height));
     Some((index, (x as i32, y as i32, width, height)))
 }
-/// Minimum readable logical controls, bounded by the actual physical work area.
-pub fn popup_min_size(area: &PopupArea) -> (u32, u32) {
-    let scale = if area.scale.is_finite() && area.scale > 0.0 {
-        area.scale
-    } else {
-        1.0
-    };
-    (
-        ((430.0 * scale).round() as u32).min(area.work.2),
-        ((260.0 * scale).round() as u32).min(area.work.3),
-    )
-}
-/// Coordinates are physical throughout; only the desired logical size/gap is DPI-scaled.
-pub fn popup_bounds(
-    work: (i32, i32, u32, u32),
-    click: (f64, f64),
-    scale: f64,
-) -> (i32, i32, u32, u32) {
-    let (left, top, width, height) = work;
+/// Logical pixels to physical pixels; an invalid scale factor counts as 1.
+fn physical(logical: f64, scale: f64) -> u32 {
     let scale = if scale.is_finite() && scale > 0.0 {
         scale
     } else {
         1.0
     };
-    let w = ((430.0 * scale).round() as u32).min(width);
-    let h = ((340.0 * scale).round() as u32).min(height);
-    let gap = (12.0 * scale).round() as i32;
+    (logical * scale).round() as u32
+}
+/// Minimum readable logical controls, bounded by the actual physical work area.
+pub fn popup_min_size(area: &PopupArea) -> (u32, u32) {
+    (
+        physical(430.0, area.scale).min(area.work.2),
+        physical(260.0, area.scale).min(area.work.3),
+    )
+}
+/// Coordinates are physical throughout; only the desired logical size/gap is DPI-scaled.
+pub fn popup_bounds(work: PopupRect, click: (f64, f64), scale: f64) -> PopupRect {
+    let (left, top, width, height) = work;
+    let w = physical(430.0, scale).min(width);
+    let h = physical(340.0, scale).min(height);
+    let gap = physical(12.0, scale) as i32;
     let x = (click.0.round() as i32 - w as i32 - gap).clamp(left, left + width as i32 - w as i32);
     let y = (click.1.round() as i32 - h as i32 - gap).clamp(top, top + height as i32 - h as i32);
     (x, y, w, h)

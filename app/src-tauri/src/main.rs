@@ -2,7 +2,9 @@
 use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     session::Session,
-    ui::{popup_bounds, popup_min_size, popup_reopen_bounds, PopupArea, Status, UiSession},
+    ui::{
+        popup_bounds, popup_min_size, popup_reopen_bounds, PopupArea, PopupRect, Status, UiSession,
+    },
 };
 use std::sync::Mutex;
 static STARTUP_LOCK: Mutex<()> = Mutex::new(());
@@ -142,6 +144,15 @@ fn report(app: &tauri::AppHandle, error: String) {
     refresh_attention(app);
     let _ = app.emit("display-error", error);
 }
+fn work_area(monitor: &tauri::Monitor) -> PopupRect {
+    let work = monitor.work_area();
+    (
+        work.position.x,
+        work.position.y,
+        work.size.width,
+        work.size.height,
+    )
+}
 /// Native window geometry is session memory. Only first show anchors to the tray.
 /// Reopen/monitor/topology/DPI reconciliation never enters the display session or emits control events.
 fn prepare_popup(
@@ -153,17 +164,9 @@ fn prepare_popup(
         .available_monitors()
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|monitor| {
-            let work = monitor.work_area();
-            PopupArea {
-                work: (
-                    work.position.x,
-                    work.position.y,
-                    work.size.width,
-                    work.size.height,
-                ),
-                scale: monitor.scale_factor(),
-            }
+        .map(|monitor| PopupArea {
+            work: work_area(&monitor),
+            scale: monitor.scale_factor(),
         })
         .collect();
     let initialized = {
@@ -185,14 +188,8 @@ fn prepare_popup(
             .monitor_from_point(click.x, click.y)
             .map_err(|e| e.to_string())?
             .ok_or("tray monitor unavailable")?;
-        let work = monitor.work_area();
         popup_bounds(
-            (
-                work.position.x,
-                work.position.y,
-                work.size.width,
-                work.size.height,
-            ),
+            work_area(&monitor),
             (click.x, click.y),
             monitor.scale_factor(),
         )
