@@ -31,55 +31,16 @@ pub struct Status {
     pub enabled: Option<bool>,
     pub error: Option<String>,
 }
+/// Write, then report the registration actually read back.
 pub fn set(registry: &mut impl Registry, expected: &str, enabled: bool) -> Status {
-    let previous = match registry.read() {
-        Ok(value) => value,
-        Err(error) => {
-            return Status {
-                enabled: None,
-                error: Some(format!("Startup state unavailable: {error}")),
-            }
-        }
-    };
-    let target = enabled.then_some(expected);
-    let result = registry.write(target).and_then(|()| {
-        let actual = registry.read()?;
-        if actual.as_deref() == target {
-            Ok(())
-        } else {
-            Err("Startup readback mismatch".into())
-        }
-    });
-    match result {
-        Ok(()) => Status {
-            enabled: Some(enabled),
-            error: None,
-        },
-        Err(mut error) => {
-            if let Err(e) = registry.write(previous.as_deref()) {
-                error.push_str(&format!("; rollback failed: {e}"));
-            }
-            // The same final readback supplies both rollback verification and UI state.
-            let enabled = match registry.read() {
-                Ok(actual) => {
-                    if actual == previous {
-                        error.push_str("; previous registration restored");
-                    } else {
-                        error.push_str("; rollback readback mismatch");
-                    }
-                    Some(actual.as_deref() == Some(expected))
-                }
-                Err(e) => {
-                    error.push_str(&format!("; rollback readback unavailable: {e}"));
-                    None
-                }
-            };
-            Status {
-                enabled,
-                error: Some(error),
-            }
-        }
+    let written = registry.write(enabled.then_some(expected));
+    let mut status = get(registry, expected);
+    if let Err(e) = written {
+        status.error = Some(format!("Startup change failed: {e}"));
+    } else if status.enabled.is_some() && status.enabled != Some(enabled) {
+        status.error = Some("Startup change did not take effect".into());
     }
+    status
 }
 pub fn get(registry: &impl Registry, expected: &str) -> Status {
     match registry.read() {

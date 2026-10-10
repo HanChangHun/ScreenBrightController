@@ -11,7 +11,7 @@ Not executed by development tools. Use only with deliberate user authorization. 
 - Explicitly disable and verify unchecked state/value removal. At next login, app must not run. Repeated disable is harmless.
 - Move/rename only after normal Restore and quit. Reopen: stale old location is reported, not incorrectly checked; enable again to update the path. Leave the executable in its final location afterward.
 - Compare Windows Startup Apps/Task Manager policy separately; this app does not modify its external disabled/approval switches. Verify behavior when those policies allow startup.
-- Permissions/readback failure and mismatch are injected automated tests, not real registry tampering. On an actual error, expect verified rollback/current state; unknown state disables the checkbox and reopening Settings retries the read. Never accept a checked box alone as proof of real login execution.
+- Permissions/readback failure and mismatch are injected automated tests, not real registry tampering. On an actual error, expect the read-back current state with an error; unknown state disables the checkbox and reopening Settings retries the read. Never accept a checked box alone as proof of real login execution.
 
 ## Popup geometry (native acceptance not performed)
 

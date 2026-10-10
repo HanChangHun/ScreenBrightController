@@ -1,99 +1,36 @@
 use screen_bright_controller::startup::{
     get, launch_mode, registration_command, set, LaunchMode, Registry,
 };
-use std::cell::Cell;
-struct Fault {
-    inner: Memory,
-    reads: Cell<usize>,
-    fail_read: Option<usize>,
-    fail_write: bool,
-    mismatch: bool,
-}
-impl Registry for Fault {
-    fn read(&self) -> Result<Option<String>, String> {
-        let n = self.reads.get() + 1;
-        self.reads.set(n);
-        if self.fail_read == Some(n) {
-            Err("get failed".into())
-        } else {
-            self.inner.read()
-        }
-    }
-    fn write(&mut self, v: Option<&str>) -> Result<(), String> {
-        if self.fail_write {
-            return Err("set failed".into());
-        }
-        if self.mismatch && self.inner.writes == 0 {
-            self.inner.writes += 1;
-            Ok(())
-        } else {
-            self.inner.write(v)
-        }
-    }
-}
-fn fault() -> Fault {
-    Fault {
-        inner: Memory::default(),
-        reads: Cell::new(0),
-        fail_read: None,
-        fail_write: false,
-        mismatch: false,
-    }
-}
 #[test]
 fn set_failure_returns_actual_registration_and_error() {
-    let mut m = fault();
-    m.fail_write = true;
+    let mut m = Memory {
+        fail_write: true,
+        ..Default::default()
+    };
     let s = set(&mut m, "expected", true);
     assert_eq!(s.enabled, Some(false));
     assert!(s.error.unwrap().contains("set failed"));
 }
 #[test]
-fn mismatch_rolls_back_previous_raw_entry_and_reports_failure() {
-    let mut m = fault();
-    m.inner.value = Some("old location".into());
-    m.mismatch = true;
+fn write_without_effect_is_reported_from_readback() {
+    let mut m = Memory {
+        ignore_write: true,
+        ..Default::default()
+    };
     let s = set(&mut m, "expected", true);
-    assert_eq!(m.inner.writes, 2);
-    assert_eq!(m.inner.value.as_deref(), Some("old location"));
     assert_eq!(s.enabled, Some(false));
-    assert!(s.error.unwrap().contains("readback mismatch"));
-}
-#[test]
-fn rollback_unknown_readback_never_returns_stale_checkbox_state() {
-    let mut m = fault();
-    m.mismatch = true;
-    m.fail_read = Some(3);
-    let s = set(&mut m, "expected", true);
-    assert_eq!(s.enabled, None);
-    assert!(s.error.unwrap().contains("rollback readback unavailable"));
-    assert_eq!(m.reads.get(), 3);
+    assert!(s.error.unwrap().contains("did not take effect"));
 }
 #[test]
 fn get_failure_disables_unknown_registration_without_writing() {
-    let mut m = fault();
-    m.fail_read = Some(1);
+    let m = Memory {
+        fail_read: true,
+        ..Default::default()
+    };
     let s = get(&m, "expected");
     assert_eq!(s.enabled, None);
     assert!(s.error.unwrap().contains("get failed"));
-    assert_eq!(m.inner.writes, 0);
-}
-#[test]
-fn failed_initial_read_never_writes() {
-    let mut m = fault();
-    m.fail_read = Some(1);
-    let s = set(&mut m, "expected", true);
-    assert_eq!(s.enabled, None);
-    assert_eq!(m.inner.writes, 0);
-}
-#[test]
-fn failed_verification_rolls_back() {
-    let mut m = fault();
-    m.fail_read = Some(2);
-    let s = set(&mut m, "expected", true);
-    assert_eq!(s.enabled, Some(false));
-    assert_eq!(m.inner.value, None);
-    assert!(s.error.unwrap().contains("get failed"));
+    assert_eq!(m.writes, 0);
 }
 #[test]
 fn startup_arguments_are_exact_and_never_route_to_watchdog() {
@@ -124,14 +61,25 @@ fn startup_arguments_are_exact_and_never_route_to_watchdog() {
 struct Memory {
     value: Option<String>,
     writes: usize,
+    fail_read: bool,
+    fail_write: bool,
+    ignore_write: bool,
 }
 impl Registry for Memory {
     fn read(&self) -> Result<Option<String>, String> {
+        if self.fail_read {
+            return Err("get failed".into());
+        }
         Ok(self.value.clone())
     }
     fn write(&mut self, value: Option<&str>) -> Result<(), String> {
+        if self.fail_write {
+            return Err("set failed".into());
+        }
         self.writes += 1;
-        self.value = value.map(str::to_owned);
+        if !self.ignore_write {
+            self.value = value.map(str::to_owned);
+        }
         Ok(())
     }
 }
@@ -151,7 +99,7 @@ fn explicit_toggle_is_verified_and_disable_is_idempotent() {
 fn current_registration_is_read_not_a_cached_default() {
     let m = Memory {
         value: Some("\"C:\\Apps With Spaces\\ScreenBrightController.exe\" --autostart".into()),
-        writes: 0,
+        ..Default::default()
     };
     let state = get(
         &m,

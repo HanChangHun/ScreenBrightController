@@ -22,7 +22,7 @@ const settle=()=>new Promise(r=>setTimeout(r,0));
  f.nodes.autostart.events.change({isTrusted:true});eq(f.nodes.autostart.disabled,true);
  eq(f.calls.at(-1),{c:'set_autostart',a:{enabled:false}});
  release({enabled:false,error:null});await settle();eq(f.nodes.autostart.checked,false);eq(f.nodes.autostart.disabled,false);
- f.setPending(null);f.setReply({enabled:false,error:'Registration failed; rolled back'});f.nodes.autostart.checked=true;f.nodes.autostart.events.change({isTrusted:true});await settle();eq(f.nodes.autostart.checked,false);eq(f.nodes['startup-message'].textContent,'Registration failed; rolled back');
+ f.setPending(null);f.setReply({enabled:false,error:'Startup change did not take effect'});f.nodes.autostart.checked=true;f.nodes.autostart.events.change({isTrusted:true});await settle();eq(f.nodes.autostart.checked,false);eq(f.nodes['startup-message'].textContent,'Startup change did not take effect');
  f.setReply({enabled:null,error:'Readback unavailable'});f.nodes.autostart.checked=true;f.nodes.autostart.events.change({isTrusted:true});await settle();eq(f.nodes.autostart.checked,false);eq(f.nodes.autostart.disabled,true);
  const before=f.calls.length;f.nodes.autostart.events.change({isTrusted:false});await settle();eq(f.calls.length,before);
  f.setReply({enabled:null,error:'Get failed'});f.nodes['settings-toggle'].events.click({isTrusted:true});f.nodes['settings-toggle'].events.click({isTrusted:true});await settle();eq(f.nodes.autostart.disabled,true);eq(f.nodes['startup-message'].textContent,'Get failed');
