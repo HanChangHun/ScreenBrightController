@@ -19,9 +19,12 @@ impl<D: Driver> Guard<D> {
             errors: BTreeMap::new(),
         })
     }
-    pub fn arm(&mut self, id: &str, seconds: u64, now: u64) -> Result<(), String> {
-        if !(1..=30).contains(&seconds) || self.armed.contains_key(id) {
-            return Err("invalid duration or already armed".into());
+    pub fn arm_continuous(&mut self, id: &str, lease: u64, now: u64) -> Result<(), String> {
+        if lease != 10 {
+            return Err("continuous lease must be 10 seconds".into());
+        }
+        if self.armed.contains_key(id) {
+            return Err("already armed".into());
         }
         let original = self
             .monitors
@@ -31,14 +34,7 @@ impl<D: Driver> Guard<D> {
             .ok_or("unknown display or unreadable original")?;
         crate::scale(original, 100)?;
         self.armed
-            .insert(id.into(), now.saturating_add(seconds * 1000));
-        Ok(())
-    }
-    pub fn arm_continuous(&mut self, id: &str, lease: u64, now: u64) -> Result<(), String> {
-        if lease != 10 {
-            return Err("continuous lease must be 10 seconds".into());
-        }
-        self.arm(id, lease, now)?;
+            .insert(id.into(), now.saturating_add(lease * 1000));
         self.continuous.insert(id.into());
         Ok(())
     }
@@ -104,7 +100,7 @@ mod tests {
         let mut g = Guard::new(Mock::default()).unwrap();
         g.tick(1, false);
         assert_eq!(g.driver.writes, 0);
-        g.arm("mock-2", 30, 1).unwrap();
+        g.arm_continuous("mock-2", 10, 1).unwrap();
         g.driver.set("mock-2", &vec![vec![100; 256]; 3]).unwrap();
         g.tick(2, false);
         assert_eq!(g.driver.current["mock-2"][0][0], 50000);
@@ -113,11 +109,11 @@ mod tests {
     #[test]
     fn timer_restores_owned_original_only_after_deadline() {
         let mut g = Guard::new(Mock::default()).unwrap();
-        g.arm("mock-1", 2, 100).unwrap();
+        g.arm_continuous("mock-1", 10, 100).unwrap();
         g.driver.set("mock-1", &vec![vec![100; 256]; 3]).unwrap();
-        g.tick(2099, true);
+        g.tick(10099, true);
         assert!(g.driver.restored.is_empty());
-        g.tick(2100, true);
+        g.tick(10100, true);
         assert_eq!(g.driver.current["mock-1"][0][0], 40000);
         assert!(g.armed.is_empty());
     }

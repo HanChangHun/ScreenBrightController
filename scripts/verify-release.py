@@ -51,7 +51,7 @@ startup = run(app, '--startup-check', 'startup-check.json')
 smoke = run(app, '--self-test', 'self-test.json')
 assert not startup['armed'] and not startup['restore_errors']
 assert all(data['native_display_writes'] == 0 for data in (before, startup, smoke))
-assert smoke['watchdog_timeout_restored'] and smoke['watchdog_disconnect_restored']
+assert smoke['watchdog_disconnect_restored']
 # Kill a mock parent while the watchdog pipe stays open, proving process-handle detection.
 parent = subprocess.Popen([str(app), '--mock-parent-wait'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 guard = None
@@ -98,7 +98,6 @@ report = {
     'active_monitors':[(m['id'], m['name'], m['original'] is not None) for m in after['monitors']],
     'native_gamma_snapshots_unchanged':unchanged,
     'real_watchdog_startup_unarmed':not startup['armed'],
-    'app_mock_watchdog_timeout_restored':smoke['watchdog_timeout_restored'],
     'app_mock_watchdog_eof_restored':smoke['watchdog_disconnect_restored'],
     'app_mock_parent_death_with_open_pipe_restored':True,
     'native_display_writes':0,

@@ -85,7 +85,7 @@ impl Driver for Native {
         }
         Ok(out)
     }
-    fn arm(&mut self, _id: &str, _seconds: u64) -> Result<(), String> {
+    fn arm_continuous(&mut self, _id: &str) -> Result<(), String> {
         Err("native backend requires independent watchdog".into())
     }
     fn read(&mut self, id: &str) -> Result<Ramp, String> {
@@ -110,7 +110,7 @@ impl Driver for Native {
     }
     fn restore(&mut self, id: &str, original: &Ramp) -> Result<(), String> {
         // Skip disconnected IDs. Windows may recycle display IDs after hotplug;
-        // hotplug/replacement during a preview is unsupported (see README).
+        // hotplug/replacement while dimmed is unsupported (see README).
         if !self.snapshot()?.iter().any(|m| m.id == id) {
             return Err("display disconnected; original retained for retry".into());
         }

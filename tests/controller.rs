@@ -1,34 +1,33 @@
 use screen_bright_controller::controller::*;
 #[test]
-fn deliberate_preview_arms_before_write_and_reports_readback() {
+fn arms_before_write_and_reports_readback() {
     let mut c = Controller::new(Mock::default()).unwrap();
-    let result = c.preview(&["mock-1".into()], 75, 15, true).unwrap();
+    let result = c.apply_continuous(&["mock-1".into()], 75).unwrap();
     assert_eq!(c.driver.armed, vec!["mock-1"]);
     assert_eq!(c.driver.current["mock-1"][0][0], 30000);
     assert_eq!(result[0].readback_matches, Some(true));
     assert!(!result[0].visible_effect_verified);
-    assert!(c.changed.contains_key("mock-1"));
+    assert!(c.changed.contains("mock-1"));
 }
 #[test]
-fn refuses_without_consent_invalid_timer_or_rearming() {
+fn refuses_unknown_duplicate_or_unsafe_targets_before_any_write() {
     let mut c = Controller::new(Mock::default()).unwrap();
-    assert!(c.preview(&["mock-1".into()], 75, 15, false).is_err());
-    assert!(c.preview(&["mock-1".into()], 75, 0, true).is_err());
-    assert!(c.preview(&["mock-1".into()], 75, 31, true).is_err());
     assert!(c
-        .preview(&["mock-1".into(), "missing".into()], 75, 15, true)
+        .apply_continuous(&["mock-1".into(), "missing".into()], 75)
         .is_err());
+    assert!(c
+        .apply_continuous(&["mock-1".into(), "mock-1".into()], 75)
+        .is_err());
+    assert!(c.apply_continuous(&["mock-1".into()], 9).is_err());
     assert_eq!(c.driver.writes, 0);
-    c.preview(&["mock-1".into()], 75, 15, true).unwrap();
-    assert!(c.preview(&["mock-1".into()], 60, 15, true).is_err());
-    assert_eq!(c.driver.writes, 1);
+    assert!(c.driver.armed.is_empty());
 }
 #[test]
 fn restore_only_changed_display_to_saved_original() {
     let mut c = Controller::new(Mock::default()).unwrap();
     c.restore_all().unwrap();
     assert_eq!(c.driver.writes, 0);
-    c.preview(&["mock-1".into()], 50, 15, true).unwrap();
+    c.apply_continuous(&["mock-1".into()], 50).unwrap();
     c.restore_all().unwrap();
     assert_eq!(c.driver.restored, vec!["mock-1"]);
     assert_eq!(c.driver.current["mock-1"][0][0], 40000);

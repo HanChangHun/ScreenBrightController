@@ -33,31 +33,19 @@ fn self_test() -> Result<(), String> {
     if c.driver.writes != 0 {
         return Err("startup wrote gamma".into());
     }
-    if c.preview(&["mock-1".into()], 50, 15, false).is_ok() {
-        return Err("consent guard failed".into());
-    }
-    let outcomes = c.preview(&["mock-1".into(), "mock-2".into()], 75, 15, true)?;
+    let outcomes = c.apply_continuous(&["mock-1".into(), "mock-2".into()], 75)?;
     c.restore_all()?;
     if c.driver.current["mock-1"][0][0] != 40000 || c.driver.current["mock-2"][0][0] != 50000 {
         return Err("saved-original restore failed".into());
     }
     let mut watchdog = Link::spawn(true)?;
-    let armed = watchdog.request(Request::Arm {
-        id: "mock-1".into(),
-        seconds: 1,
+    let armed = watchdog.request(Request::Continuous {
+        id: "mock-2".into(),
+        lease: 10,
     })?;
-    if armed.mock_values.as_ref().unwrap()["mock-1"] != 100 {
+    if armed.mock_values.as_ref().unwrap()["mock-2"] != 100 {
         return Err("mock watchdog did not simulate change".into());
     }
-    std::thread::sleep(std::time::Duration::from_millis(1300));
-    let timed = watchdog.request(Request::Status)?;
-    if !timed.armed.is_empty() || timed.mock_values.as_ref().unwrap()["mock-1"] != 40000 {
-        return Err("independent timeout restore failed".into());
-    }
-    watchdog.request(Request::Arm {
-        id: "mock-2".into(),
-        seconds: 30,
-    })?;
     let disconnected = watchdog.disconnect_and_wait()?;
     if !disconnected.armed.is_empty()
         || disconnected.mock_values.as_ref().unwrap()["mock-2"] != 50000
@@ -65,6 +53,6 @@ fn self_test() -> Result<(), String> {
         return Err("pipe EOF restore failed".into());
     }
     print(
-        json!({"mode":"mock","native_display_writes":0,"mock_controller_writes":c.driver.writes,"monitor_count":c.monitors.len(),"outcomes":outcomes,"watchdog_timeout_restored":true,"watchdog_disconnect_restored":true,"visible_effect_verified":false}),
+        json!({"mode":"mock","native_display_writes":0,"mock_controller_writes":c.driver.writes,"monitor_count":c.monitors.len(),"outcomes":outcomes,"watchdog_disconnect_restored":true,"visible_effect_verified":false}),
     )
 }

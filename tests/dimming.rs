@@ -15,16 +15,6 @@ fn dimming_conversion_accepts_every_integer() {
     }
 }
 #[test]
-fn unchanged_preview_does_not_arm_write_or_restore() {
-    use screen_bright_controller::controller::{Controller, Mock};
-    let mut c = Controller::new(Mock::default()).unwrap();
-    c.preview(&["mock-1".into()], 100, 15, true).unwrap();
-    c.restore_all().unwrap();
-    assert_eq!(c.driver.writes, 0);
-    assert!(c.driver.armed.is_empty());
-    assert!(c.driver.restored.is_empty());
-}
-#[test]
 fn authorized_ten_percent_scales_saved_channels() {
     let original = vec![vec![1000; 256], vec![2000; 256], vec![4000; 256]];
     let result = scale(&original, 10).unwrap();

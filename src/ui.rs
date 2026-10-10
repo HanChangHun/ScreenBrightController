@@ -83,7 +83,6 @@ enum Recovery {
 pub struct UiSession {
     pub session: Session,
     pub controls: BTreeMap<String, Control>,
-    pub consent: bool,
     pub generation: u64,
     pub revision: u64,
     live_blocked: bool,
@@ -113,7 +112,6 @@ impl UiSession {
         Ok(Self {
             session,
             controls,
-            consent: false,
             generation: 0,
             revision: 0,
             live_blocked: false,
@@ -131,33 +129,16 @@ impl UiSession {
         status["generation"] = json!(self.generation);
         status["revision"] = json!(self.revision);
         status["controls"] = json!(self.controls);
-        status["consent"] = json!(self.consent);
         status["live_blocked"] = json!(self.live_blocked);
         status["recovery"] = json!(self.recovery);
         status["outcomes"] = self.outcomes.clone();
         status["message"] = json!(self.message);
         status["operation"] = json!(if self.session.is_continuous() {
             "continuous"
-        } else if !status["armed"].as_array().unwrap().is_empty() {
-            "preview"
         } else {
             "idle"
         });
         Ok(status)
-    }
-    pub fn set_control(&mut self, id: &str, dim: i64, enabled: bool) -> Result<(), String> {
-        dimming_percent(dim)?;
-        if !self.controls.contains_key(id) {
-            return Err("unknown control".into());
-        }
-        if id == "master" && enabled && dim == 0 {
-            self.session.restore()?;
-        } else if id != "master" && (!enabled || (dim == 0 && !self.controls["master"].enabled)) {
-            self.session.restore_target(id)?;
-        }
-        let control = self.controls.get_mut(id).ok_or("unknown control")?;
-        *control = Control { dim, enabled };
-        Ok(())
     }
     /// Only intentional UI gestures use this command. Generation fences all pre-Restore intents.
     pub fn live_control(
@@ -176,8 +157,7 @@ impl UiSession {
         }
         self.controls.insert(id.into(), Control { dim, enabled });
         self.revision += 1;
-        self.consent = true;
-        let result = self.apply("continuous");
+        let result = self.apply();
         if let Err(ref e) = result {
             self.live_blocked = true;
             self.recovery = Some(Recovery::Apply);
@@ -186,18 +166,10 @@ impl UiSession {
         }
         result
     }
-    pub fn main_close(&mut self) -> Result<(), String> {
-        if self.session.is_continuous() {
-            Ok(())
-        } else {
-            self.restore()
-        }
-    }
     pub fn heartbeat(&mut self) -> Result<(), String> {
         if let Err(e) = self.session.heartbeat() {
             self.recovery = Some(Recovery::Safety);
             self.message = format!("Safety stop: {e}. Restore before retrying.");
-            self.consent = false;
             self.live_blocked = true;
             self.generation += 1;
             self.revision += 1;
@@ -205,17 +177,8 @@ impl UiSession {
         }
         Ok(())
     }
-    pub fn apply(&mut self, mode: &str) -> Result<(), String> {
-        if mode == "preview" {
-            return self.preview();
-        }
-        if mode != "continuous" || !self.consent {
-            return Err("valid mode and deliberate consent required".into());
-        }
+    fn apply(&mut self) -> Result<(), String> {
         let status = self.session.status()?;
-        if !self.session.is_continuous() && !status["armed"].as_array().unwrap().is_empty() {
-            return Err("restore preview before continuous apply".into());
-        }
         let master = self.controls["master"].clone();
         let mut targets = vec![];
         for monitor in status["monitors"].as_array().ok_or("missing monitors")? {
@@ -236,7 +199,6 @@ impl UiSession {
                 },
             ));
         }
-        self.consent = false;
         self.outcomes = json!([]);
         let mut out = vec![];
         for (id, percent) in targets {
@@ -244,7 +206,7 @@ impl UiSession {
                 self.session.restore_target(&id)?;
                 continue;
             }
-            match self.session.continuous(vec![id], percent, true) {
+            match self.session.continuous(vec![id], percent) {
                 Ok(mut rows) => {
                     let failed = rows
                         .iter()
@@ -267,53 +229,6 @@ impl UiSession {
         self.message="Continuous operation applied. Closing hides to tray; Restore or Quit returns saved originals. Native lease protection active.".into();
         Ok(())
     }
-    pub fn preview(&mut self) -> Result<(), String> {
-        let status = self.session.status()?;
-        if !self.consent
-            || !status["armed"]
-                .as_array()
-                .ok_or("missing armed")?
-                .is_empty()
-        {
-            return Err("explicit consent required; restore before another preview".into());
-        }
-        let master = &self.controls["master"];
-        let mut targets = vec![];
-        // Validate the entire request before any arm/write; unsupported/disabled targets are excluded.
-        for monitor in status["monitors"].as_array().ok_or("missing monitors")? {
-            let id = monitor["id"].as_str().ok_or("missing id")?;
-            let control = &self.controls[id];
-            let dim = if master.enabled {
-                master.dim
-            } else {
-                control.dim
-            };
-            let percent = dimming_percent(dim)?;
-            if control.enabled && monitor["supported"] == true && dim != 0 {
-                targets.push((id.to_string(), percent));
-            }
-        }
-        self.consent = false;
-        self.outcomes = json!([]);
-        self.message = "No nonzero enabled targets; no gamma writes.".into();
-        let mut outcomes = vec![];
-        for (id, percent) in targets {
-            match self.session.preview(vec![id], percent, true) {
-                Ok(mut out) => outcomes.append(&mut out),
-                Err(e) => {
-                    self.outcomes = json!(outcomes);
-                    self.message=format!("Preview error: {e}. Already attempted targets remain watchdog-protected; restore before retry.");
-                    return Err(e);
-                }
-            }
-        }
-        if !outcomes.is_empty() {
-            self.message =
-                "15-second preview attempted. API/readback do not verify visible effect.".into();
-        }
-        self.outcomes = json!(outcomes);
-        Ok(())
-    }
     /// User-initiated only: give every display with a dimmed saved original the linear ramp.
     pub fn reset_baseline(&mut self) -> Result<(), String> {
         let ids: Vec<String> = self
@@ -333,7 +248,6 @@ impl UiSession {
         self.generation += 1;
         self.revision += 1;
         self.live_blocked = true;
-        self.consent = false;
         match self.session.restore() {
             Ok(()) => {
                 self.live_blocked = false;

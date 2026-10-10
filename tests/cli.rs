@@ -84,6 +84,5 @@ fn real_cli_mock_smoke_uses_independent_watchdog_without_display_writes() {
     );
     let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(report["native_display_writes"], 0);
-    assert_eq!(report["watchdog_timeout_restored"], true);
     assert_eq!(report["watchdog_disconnect_restored"], true);
 }

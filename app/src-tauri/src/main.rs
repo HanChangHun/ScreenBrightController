@@ -556,7 +556,7 @@ mod popup_policy_tests {
         .unwrap();
         assert!(!attention);
         with_session(&state, |s| {
-            if let Session::Demo(c, _) = &mut s.session {
+            if let Session::Demo(c) = &mut s.session {
                 c.driver.ignored_set = true;
             }
             Ok(())
@@ -575,7 +575,7 @@ mod popup_policy_tests {
             "successful heartbeat cannot clear blocked recovery"
         );
         with_session(&state, |s| {
-            if let Session::Demo(c, _) = &mut s.session {
+            if let Session::Demo(c) = &mut s.session {
                 c.driver.fail_restore = true;
             }
             Ok(())
@@ -584,7 +584,7 @@ mod popup_policy_tests {
         assert!(restore_handle(&state, |v| attention = v).is_err());
         assert!(attention);
         with_session(&state, |s| {
-            if let Session::Demo(c, _) = &mut s.session {
+            if let Session::Demo(c) = &mut s.session {
                 c.driver.fail_restore = false;
                 c.driver.ignored_set = false;
             }
@@ -653,7 +653,7 @@ mod popup_policy_tests {
     fn delayed_attention_publication_reads_post_restore_state() {
         let state = Mutex::new(Ok(UiSession::new(Session::demo().unwrap()).unwrap()));
         with_session(&state, |s| {
-            if let Session::Demo(c, _) = &mut s.session {
+            if let Session::Demo(c) = &mut s.session {
                 c.driver.ignored_set = true;
             }
             s.live_control("master", 35, true, 0)

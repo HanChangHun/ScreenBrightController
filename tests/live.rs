@@ -7,12 +7,12 @@ fn live_gesture_applies_without_consent_and_restore_rejects_old_generation() {
     ui.live_control("master", 40, true, 0).unwrap();
     assert_eq!(ui.status().unwrap()["operation"], "continuous");
     ui.live_control("master", 65, true, 0).unwrap();
-    if let Session::Demo(c, _) = &ui.session {
+    if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.armed.len(), 2);
         assert_eq!(c.driver.current["mock-1"][0][0], 14000);
     }
     ui.live_control("master", 23, true, 0).unwrap();
-    if let Session::Demo(c, _) = &ui.session {
+    if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.current["mock-1"][0][0], 30800);
     }
     ui.restore().unwrap();
@@ -26,7 +26,7 @@ fn live_links_independent_exclusion_zero_and_readonly_status() {
         ui.status().unwrap();
         ui.heartbeat().unwrap();
     }
-    if let Session::Demo(c, _) = &ui.session {
+    if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.writes, 0);
     }
     for dim in [-1, 91, i64::MAX] {
@@ -36,7 +36,7 @@ fn live_links_independent_exclusion_zero_and_readonly_status() {
     ui.live_control("master", 0, false, 0).unwrap();
     ui.live_control("mock-1", 23, true, 0).unwrap();
     ui.live_control("mock-2", 42, true, 0).unwrap();
-    if let Session::Demo(c, _) = &ui.session {
+    if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.writes, 2);
     }
     ui.live_control("master", 33, true, 0).unwrap();
@@ -48,7 +48,7 @@ fn live_links_independent_exclusion_zero_and_readonly_status() {
 #[test]
 fn rejected_live_blocks_retry_preserves_protection_and_restore_failure_fences() {
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
-    if let Session::Demo(c, _) = &mut ui.session {
+    if let Session::Demo(c) = &mut ui.session {
         c.driver.ignored_set = true;
     }
     assert!(ui.live_control("master", 80, true, 0).is_err());
@@ -58,7 +58,7 @@ fn rejected_live_blocks_retry_preserves_protection_and_restore_failure_fences() 
         false
     );
     assert!(ui.live_control("master", 81, true, 1).is_err());
-    if let Session::Demo(c, _) = &mut ui.session {
+    if let Session::Demo(c) = &mut ui.session {
         c.driver.fail_restore = true;
     }
     assert!(ui.restore().is_err());
@@ -68,14 +68,14 @@ fn rejected_live_blocks_retry_preserves_protection_and_restore_failure_fences() 
 fn ignored_live_update_keeps_last_verified_ramp_without_fighting() {
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
     ui.live_control("master", 40, true, 0).unwrap();
-    if let Session::Demo(c, _) = &mut ui.session {
+    if let Session::Demo(c) = &mut ui.session {
         c.driver.ignored_set = true;
     }
     assert!(ui.live_control("master", 80, true, 0).is_err());
     ui.heartbeat().unwrap();
-    if let Session::Demo(c, _) = &ui.session {
+    if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.current["mock-1"][0][0], 24000);
-        assert!(c.changed.contains_key("mock-1"));
+        assert!(c.changed.contains("mock-1"));
         assert_eq!(c.driver.writes, 3);
     }
 }
@@ -86,7 +86,7 @@ fn boundary_requests_report_ignored_and_rejected_ramps_honestly() {
         for rejected in [false, true] {
             let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
             ui.live_control("master", 35, true, 0).unwrap();
-            if let Session::Demo(c, _) = &mut ui.session {
+            if let Session::Demo(c) = &mut ui.session {
                 c.driver.ignored_set = true;
                 c.driver.fail_set = rejected;
             }
@@ -99,12 +99,12 @@ fn boundary_requests_report_ignored_and_rejected_ramps_honestly() {
             assert_eq!(status["outcomes"][0]["readback_matches"], false);
             assert!(status["message"].as_str().unwrap().contains("stopped"));
             ui.heartbeat().unwrap();
-            if let Session::Demo(c, _) = &ui.session {
+            if let Session::Demo(c) = &ui.session {
                 assert_eq!(c.driver.current["mock-1"][0][0], 26000);
                 assert_eq!(c.driver.writes, 3);
             }
             ui.restore().unwrap();
-            if let Session::Demo(c, _) = &ui.session {
+            if let Session::Demo(c) = &ui.session {
                 assert_eq!(c.driver.current["mock-1"][0][0], 40000);
                 assert_eq!(c.driver.current["mock-2"][0][0], 50000);
             }

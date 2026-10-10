@@ -1,6 +1,6 @@
 use crate::Ramp;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Monitor {
     pub id: String,
@@ -10,10 +10,7 @@ pub struct Monitor {
 }
 pub trait Driver {
     fn snapshot(&mut self) -> Result<Vec<Monitor>, String>;
-    fn arm(&mut self, id: &str, seconds: u64) -> Result<(), String>;
-    fn arm_continuous(&mut self, id: &str) -> Result<(), String> {
-        self.arm(id, 10)
-    }
+    fn arm_continuous(&mut self, id: &str) -> Result<(), String>;
     fn renew(&mut self, _id: &str) -> Result<(), String> {
         Ok(())
     }
@@ -54,69 +51,16 @@ pub struct Outcome {
 pub struct Controller<D: Driver> {
     pub driver: D,
     pub monitors: Vec<Monitor>,
-    pub changed: BTreeMap<String, u64>,
+    pub changed: BTreeSet<String>,
     pub expected: BTreeMap<String, Ramp>,
 }
 impl<D: Driver> Controller<D> {
-    pub fn preview(
-        &mut self,
-        ids: &[String],
-        percent: u8,
-        seconds: u64,
-        consent: bool,
-    ) -> Result<Vec<Outcome>, String> {
-        if !consent || !(1..=30).contains(&seconds) || ids.is_empty() {
-            return Err("explicit consent and 1..30 second preview required".into());
-        }
-        let mut unique = std::collections::BTreeSet::new();
-        for id in ids {
-            if !unique.insert(id) || self.changed.contains_key(id) {
-                return Err("restore before starting another preview".into());
-            }
-            let ramp = self
-                .monitors
-                .iter()
-                .find(|m| &m.id == id)
-                .and_then(|m| m.original.as_ref())
-                .ok_or("unknown or unsupported display")?;
-            crate::scale(ramp, percent)?;
-        }
-        let mut results = vec![];
-        for id in ids {
-            let original = self
-                .monitors
-                .iter()
-                .find(|m| &m.id == id)
-                .and_then(|m| m.original.as_ref())
-                .ok_or("unknown or unsupported display")?;
-            let ramp = crate::scale(original, percent)?;
-            if &ramp == original {
-                continue;
-            }
-            self.driver.arm(id, seconds)?;
-            self.changed.insert(id.clone(), seconds);
-            let api_success = self.driver.set(id, &ramp)?;
-            let readback = self.driver.read(id);
-            results.push(Outcome {
-                id: id.clone(),
-                api_success,
-                readback_matches: readback.as_ref().ok().map(|r| r == &ramp),
-                readback_error: readback.err(),
-                visible_effect_verified: false,
-            });
-        }
-        Ok(results)
-    }
     pub fn apply_continuous(
         &mut self,
         ids: &[String],
         percent: u8,
-        consent: bool,
     ) -> Result<Vec<Outcome>, String> {
-        if !consent || ids.is_empty() {
-            return Err("explicit continuous consent required".into());
-        }
-        let mut unique = std::collections::BTreeSet::new();
+        let mut unique = BTreeSet::new();
         for id in ids {
             if !unique.insert(id) {
                 return Err("duplicate display".into());
@@ -128,9 +72,6 @@ impl<D: Driver> Controller<D> {
                 .and_then(|m| m.original.as_ref())
                 .ok_or("unknown display")?;
             crate::scale(original, percent)?;
-            if self.changed.get(id).is_some_and(|s| *s != 0) {
-                return Err("restore preview before continuous apply".into());
-            }
         }
         let mut out = vec![];
         for id in ids {
@@ -146,7 +87,7 @@ impl<D: Driver> Controller<D> {
                 continue;
             }
             let ramp = crate::scale(&original, percent)?;
-            if self.changed.contains_key(id) {
+            if self.changed.contains(id) {
                 self.verify_target(id)?;
                 self.driver.renew(id)?;
                 if self.expected.get(id) == Some(&ramp) {
@@ -154,7 +95,7 @@ impl<D: Driver> Controller<D> {
                 }
             } else {
                 self.driver.arm_continuous(id)?;
-                self.changed.insert(id.clone(), 0);
+                self.changed.insert(id.clone());
             }
             let previous = self
                 .expected
@@ -191,13 +132,7 @@ impl<D: Driver> Controller<D> {
         Ok(())
     }
     pub fn heartbeat(&mut self) -> Result<(), String> {
-        for id in self
-            .changed
-            .iter()
-            .filter(|(_, s)| **s == 0)
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>()
-        {
+        for id in self.changed.iter().cloned().collect::<Vec<_>>() {
             self.verify_target(&id)?;
             self.driver.renew(&id)?;
         }
@@ -207,7 +142,7 @@ impl<D: Driver> Controller<D> {
     pub fn release_unarmed(&mut self, armed: &[String]) -> Result<(), String> {
         let lost: Vec<String> = self
             .changed
-            .keys()
+            .iter()
             .filter(|id| !armed.contains(id))
             .cloned()
             .collect();
@@ -225,7 +160,7 @@ impl<D: Driver> Controller<D> {
         }
     }
     pub fn restore_target(&mut self, id: &str) -> Result<(), String> {
-        if !self.changed.contains_key(id) {
+        if !self.changed.contains(id) {
             return Ok(());
         }
         let original = self
@@ -240,14 +175,14 @@ impl<D: Driver> Controller<D> {
         Ok(())
     }
     pub fn reset_baseline(&mut self, id: &str) -> Result<(), String> {
-        if self.changed.contains_key(id) {
+        if self.changed.contains(id) {
             return Err("restore before resetting".into());
         }
         reset_baseline(&mut self.driver, &mut self.monitors, id)
     }
     pub fn restore_all(&mut self) -> Result<(), String> {
         let mut errors = vec![];
-        for id in self.changed.keys().cloned().collect::<Vec<_>>() {
+        for id in self.changed.iter().cloned().collect::<Vec<_>>() {
             let original = self
                 .monitors
                 .iter()
@@ -273,7 +208,7 @@ impl<D: Driver> Controller<D> {
         Ok(Self {
             driver,
             monitors,
-            changed: BTreeMap::new(),
+            changed: BTreeSet::new(),
             expected: BTreeMap::new(),
         })
     }
@@ -304,7 +239,7 @@ impl Driver for Mock {
         }
         Ok(out)
     }
-    fn arm(&mut self, id: &str, _seconds: u64) -> Result<(), String> {
+    fn arm_continuous(&mut self, id: &str) -> Result<(), String> {
         if self.fail_arm {
             return Err("watchdog unavailable".into());
         }

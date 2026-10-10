@@ -11,7 +11,7 @@ fn watchdog_protocol_never_accepts_external_ramp_or_snapshot_file() {
         assert!(serde_json::from_str::<Request>(payload).is_err());
     }
     assert!(serde_json::from_str::<Request>(
-        r#"{"command":"Arm","id":"mock-1","seconds":15,"ramp":[1,2,3]}"#
+        r#"{"command":"Continuous","id":"mock-1","lease":10,"ramp":[1,2,3]}"#
     )
     .is_err());
     assert!(serde_json::from_str::<Request>(
@@ -37,11 +37,12 @@ fn watchdog_rejects_unknown_restore_without_writes() {
 #[test]
 fn watchdog_rejects_unknown_duplicate_or_unbounded_arm() {
     let mut g = Guard::new(Mock::default()).unwrap();
-    assert!(g.arm("missing", 15, 0).is_err());
-    assert!(g.arm("mock-1", 0, 0).is_err());
-    assert!(g.arm("mock-1", 31, 0).is_err());
-    g.arm("mock-1", 15, 0).unwrap();
-    assert!(g.arm("mock-1", 15, 1).is_err());
+    assert!(g.arm_continuous("missing", 10, 0).is_err());
+    assert!(g.arm_continuous("mock-1", 0, 0).is_err());
+    assert!(g.arm_continuous("mock-1", 11, 0).is_err());
+    g.arm_continuous("mock-1", 10, 0).unwrap();
+    assert!(g.arm_continuous("mock-1", 10, 1).is_err());
+    assert!(g.renew("mock-2", 10, 1).is_err());
     assert_eq!(g.driver.writes, 0);
 }
 #[test]
@@ -51,12 +52,12 @@ fn watchdog_retains_owned_snapshot_after_restore_failure_and_retries() {
         ..Default::default()
     })
     .unwrap();
-    g.arm("mock-1", 1, 0).unwrap();
-    g.tick(1000, true);
+    g.arm_continuous("mock-1", 10, 0).unwrap();
+    g.tick(10000, true);
     assert!(g.armed.contains_key("mock-1"));
     assert!(!g.errors.is_empty());
     g.driver.fail_restore = false;
-    g.tick(2000, true);
+    g.tick(11000, true);
     assert!(g.armed.is_empty());
     assert_eq!(g.driver.current["mock-1"][0][0], 40000);
 }

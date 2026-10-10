@@ -17,7 +17,6 @@ use std::{
 #[serde(tag = "command", deny_unknown_fields)]
 pub enum Request {
     Hello { token: String },
-    Arm { id: String, seconds: u64 },
     Continuous { id: String, lease: u64 },
     Renew { id: String, lease: u64 },
     Restore { id: String },
@@ -192,13 +191,6 @@ fn serve_backend<D: GuardBackend>(driver: D, secret: String, parent: Parent) -> 
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(line) => {
                 let result = match serde_json::from_str::<Request>(&line) {
-                    Ok(Request::Arm { id, seconds }) if !quitting => {
-                        let result = g.arm(&id, seconds, clock.elapsed().as_millis() as u64);
-                        if result.is_ok() {
-                            g.driver.simulate(&id);
-                        }
-                        result
-                    }
                     Ok(Request::Continuous { id, lease }) if !quitting => {
                         let result =
                             g.arm_continuous(&id, lease, clock.elapsed().as_millis() as u64);
@@ -293,7 +285,7 @@ impl Link {
         let response = self
             .output
             .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| "watchdog response timeout; preview remains protected")??;
+            .map_err(|_| "watchdog response timeout; display remains protected")??;
         if !response.ok {
             return Err(response.error.unwrap_or("watchdog rejected request".into()));
         }
@@ -347,13 +339,6 @@ impl Driver for Real {
     }
     fn snapshot(&mut self) -> Result<Vec<Monitor>, String> {
         Ok(self.link.monitors.clone())
-    }
-    fn arm(&mut self, id: &str, seconds: u64) -> Result<(), String> {
-        self.link.request(Request::Arm {
-            id: id.into(),
-            seconds,
-        })?;
-        Ok(())
     }
     fn set(&mut self, id: &str, ramp: &Ramp) -> Result<bool, String> {
         let status = self.link.request(Request::Status)?;

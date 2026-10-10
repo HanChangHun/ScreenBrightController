@@ -27,7 +27,6 @@ def accepted(payload):
 try:
     accepted({'command':'Hello','token':secret})
     accepted({'command':'Continuous','id':'mock-1','lease':10})
-    accepted({'command':'Arm','id':'mock-2','seconds':15})
     assert not request({'command':'Continuous','id':'mock-1','lease':10})['ok']
     assert not request({'command':'Renew','id':'mock-2','lease':10})['ok']
     assert not request({'command':'Renew','id':'missing','lease':10})['ok']
@@ -47,7 +46,7 @@ try:
     eof = json.loads(guard.stdout.readline())
     assert eof['mock_values']['mock-1'] == 40000 and not eof['armed'], eof
     assert guard.wait(timeout=5) == 0
-    result = {'release_exe':exe.name,'sha256':hashlib.sha256(exe.read_bytes()).hexdigest(), 'continuous_survived_18_seconds':True,'preview_expired_independently_after_15_seconds':True,'lease_loss_restored_after_10_seconds':True,'continuous_pipe_eof_restored':True,'duplicate_unknown_invalid_lease_and_preview_renew_rejected':True,'native_display_writes':0}
+    result = {'release_exe':exe.name,'sha256':hashlib.sha256(exe.read_bytes()).hexdigest(), 'continuous_survived_18_seconds':True,'lease_loss_restored_after_10_seconds':True,'continuous_pipe_eof_restored':True,'duplicate_unknown_invalid_lease_and_unarmed_renew_rejected':True,'native_display_writes':0}
     (evidence/'continuous.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     print(json.dumps(result,indent=2))
 finally:
