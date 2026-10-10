@@ -55,6 +55,10 @@ fn failed_live_request_exposes_a_paused_state_until_explicit_restore() {
     assert!(ui.live_control("master", 53, true, 1).is_err());
     assert_eq!(ui.status().unwrap().message, failed.message);
     ui.heartbeat().unwrap();
+    assert!(
+        ui.needs_attention(),
+        "a healthy heartbeat cannot clear recovery"
+    );
     if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.writes, 3); // Two accepted writes, one ignored attempt; no retry loop.
         assert_eq!(c.driver.current["mock-1"][0][0], 26000);

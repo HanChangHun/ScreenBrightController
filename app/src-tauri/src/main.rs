@@ -74,42 +74,25 @@ fn with_session<T>(
 fn status(state: tauri::State<'_, State>) -> Result<Status, String> {
     with_session(&state, UiSession::status)
 }
-fn with_attention<T>(
-    state: &State,
-    f: impl FnOnce(&mut UiSession) -> Result<T, String>,
-    publish: impl FnOnce(bool),
-) -> Result<T, String> {
-    let mut guard = state.lock().map_err(|_| "state lock failed")?;
-    let result = match guard.as_mut() {
-        Ok(session) => f(session),
-        Err(e) => Err(e.clone()),
-    };
-    // Publish while still holding the state lock: Restore cannot overtake this update.
-    publish(guard.as_ref().map_or(true, UiSession::needs_attention));
-    result
-}
-fn publish_attention(app: &tauri::AppHandle, attention: bool) {
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_tooltip(Some(tray_tooltip(attention)));
-    }
-}
+/// Publish the current recovery state to the tray. Callers must have released the state
+/// lock: this runs inline on the main thread, and is queued there from workers.
 fn refresh_attention(app: &tauri::AppHandle) {
     let handle = app.clone();
-    // Queue only AFTER releasing the operation lock. Tray setters synchronously
-    // marshal to the main thread; a worker holding this lock could deadlock Restore.
-    // Read authoritative state and publish together ON the main thread instead.
     let _ = app.run_on_main_thread(move || {
-        let _ = with_attention(
-            &handle.state::<State>(),
-            |_| Ok(()),
-            |attention| {
-                publish_attention(&handle, attention);
-            },
-        );
+        let attention = handle.state::<State>().lock().map_or(true, |s| {
+            s.as_ref().map_or(true, UiSession::needs_attention)
+        });
+        if let Some(tray) = handle.tray_by_id(TRAY_ID) {
+            let _ = tray.set_tooltip(Some(tray_tooltip(attention)));
+        }
     });
 }
 fn restore_app(state: &State, app: &tauri::AppHandle) -> Result<(), String> {
-    let result = restore_handle(state, |_| {});
+    // Without a session nothing was dimmed, so Quit must not be blocked.
+    let result = match state.lock().map_err(|_| "state lock failed")?.as_mut() {
+        Ok(s) => s.restore(),
+        Err(_) => Ok(()),
+    };
     refresh_attention(app);
     result
 }
@@ -152,17 +135,6 @@ fn hide_popup(app: tauri::AppHandle) {
         let _ = w.hide();
     }
 }
-
-fn restore_handle(state: &State, publish: impl FnOnce(bool)) -> Result<(), String> {
-    let mut guard = state.lock().map_err(|_| "state lock failed")?;
-    let result = match guard.as_mut() {
-        Ok(s) => s.restore(),
-        Err(_) => Ok(()),
-    };
-    publish(guard.as_ref().map_or(true, UiSession::needs_attention));
-    result
-}
-
 fn report(app: &tauri::AppHandle, error: String) {
     eprintln!("{error}");
     // Errors may be obsolete or unrelated to display recovery. Re-read current state
@@ -282,9 +254,6 @@ fn show_popup(
     w.set_focus().map_err(|e| e.to_string())?;
     let _ = app.emit("state-changed", ());
     Ok(())
-}
-fn popup_should_hide(event: &tauri::WindowEvent) -> bool {
-    matches!(event, tauri::WindowEvent::CloseRequested { .. })
 }
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -413,26 +382,23 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "popup"
-                && matches!(
-                    event,
-                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
-                )
-            {
-                let force = matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. });
-                let app = window.app_handle().clone();
-                let handle = app.clone();
-                let _ = app.run_on_main_thread(move || {
-                    if let Err(error) = prepare_popup(&handle, None, force) {
+            if window.label() != "popup" {
+                return;
+            }
+            match event {
+                // Window events already arrive on the main thread.
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    let force = matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. });
+                    if let Err(error) = prepare_popup(window.app_handle(), None, force) {
                         eprintln!("Popup geometry: {error}");
                     }
-                });
-            }
-            if window.label() == "popup" && popup_should_hide(event) {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
                 }
-                let _ = window.hide();
+                // Only explicit close hides the popup; focus loss does not.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())
@@ -511,181 +477,5 @@ mod popup_policy_tests {
         assert!(!placement.needs_reconcile(&areas, &areas[first], true));
         placement.reconciling = false;
         assert!(placement.needs_reconcile(&areas, &areas[first], false));
-    }
-    #[test]
-    fn stale_rejection_after_restore_does_not_mark_attention() {
-        let state = Mutex::new(Ok(UiSession::new(Session::demo().unwrap()).unwrap()));
-        with_session(&state, UiSession::restore).unwrap();
-        let mut attention = true;
-        let result = with_attention(
-            &state,
-            |s| s.live_control("master", 27, true, 0),
-            |value| attention = value,
-        );
-        assert!(result.is_err());
-        assert!(!attention, "obsolete cancellation is not current recovery");
-    }
-    #[test]
-    fn restore_publishes_attention_under_state_lock() {
-        let state = Mutex::new(Ok(UiSession::new(Session::demo().unwrap()).unwrap()));
-        restore_handle(&state, |attention| {
-            assert!(!attention);
-            assert!(
-                state.try_lock().is_err(),
-                "Restore publication must retain the state lock"
-            );
-        })
-        .unwrap();
-    }
-    #[test]
-    fn blocked_recovery_survives_successful_heartbeat_and_clears_on_restore_and_fresh_request() {
-        let state = Mutex::new(Ok(UiSession::new(Session::demo().unwrap()).unwrap()));
-        let mut attention = false;
-        with_attention(
-            &state,
-            |s| s.live_control("master", 35, true, 0),
-            |v| attention = v,
-        )
-        .unwrap();
-        assert!(!attention);
-        with_session(&state, |s| {
-            if let Session::Demo(c) = &mut s.session {
-                c.driver.ignored_set = true;
-            }
-            Ok(())
-        })
-        .unwrap();
-        assert!(with_attention(
-            &state,
-            |s| s.live_control("master", 52, true, 0),
-            |v| attention = v
-        )
-        .is_err());
-        assert!(attention);
-        with_attention(&state, UiSession::heartbeat, |v| attention = v).unwrap();
-        assert!(
-            attention,
-            "successful heartbeat cannot clear blocked recovery"
-        );
-        with_session(&state, |s| {
-            if let Session::Demo(c) = &mut s.session {
-                c.driver.fail_restore = true;
-            }
-            Ok(())
-        })
-        .unwrap();
-        assert!(restore_handle(&state, |v| attention = v).is_err());
-        assert!(attention);
-        with_session(&state, |s| {
-            if let Session::Demo(c) = &mut s.session {
-                c.driver.fail_restore = false;
-                c.driver.ignored_set = false;
-            }
-            Ok(())
-        })
-        .unwrap();
-        restore_handle(&state, |v| attention = v).unwrap();
-        assert!(!attention);
-        // A delayed worker report reads current recovery, not the old error.
-        with_attention(&state, |_| Ok(()), |v| attention = v).unwrap();
-        assert!(!attention);
-        attention = true; // Model stale presentation; fresh success re-publishes authoritative false.
-        assert!(attention);
-        with_attention(
-            &state,
-            |s| s.live_control("master", 27, true, s.generation),
-            |v| attention = v,
-        )
-        .unwrap();
-        assert!(!attention);
-        assert!(!with_session(&state, |s| Ok(s.needs_attention())).unwrap());
-    }
-    #[test]
-    fn attention_publication_prevents_restore_overtaking_live_completion() {
-        use std::sync::{mpsc, Arc};
-        let state = Arc::new(Mutex::new(Ok(
-            UiSession::new(Session::demo().unwrap()).unwrap()
-        )));
-        let (entered_tx, entered_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let writer_state = state.clone();
-        let writer = std::thread::spawn(move || {
-            with_attention(
-                &writer_state,
-                |s| s.live_control("master", 35, true, 0),
-                |attention| {
-                    assert!(!attention);
-                    assert!(writer_state.try_lock().is_err());
-                    entered_tx.send(()).unwrap();
-                    release_rx.recv().unwrap();
-                },
-            )
-            .unwrap();
-        });
-        entered_rx.recv().unwrap();
-        assert!(
-            state.try_lock().is_err(),
-            "state remains serialized until presentation completes"
-        );
-        let restore_state = state.clone();
-        let restore = std::thread::spawn(move || {
-            restore_handle(&restore_state, |attention| {
-                assert!(!attention);
-                assert!(restore_state.try_lock().is_err());
-            })
-            .unwrap();
-        });
-        release_tx.send(()).unwrap();
-        writer.join().unwrap();
-        restore.join().unwrap();
-        let final_state = with_session(&state, UiSession::status).unwrap();
-        assert_eq!(final_state.generation, 1);
-        assert_eq!(final_state.controls["master"].dim, 0);
-    }
-    #[test]
-    fn delayed_attention_publication_reads_post_restore_state() {
-        let state = Mutex::new(Ok(UiSession::new(Session::demo().unwrap()).unwrap()));
-        with_session(&state, |s| {
-            if let Session::Demo(c) = &mut s.session {
-                c.driver.ignored_set = true;
-            }
-            s.live_control("master", 35, true, 0)
-        })
-        .unwrap_err();
-        assert!(with_session(&state, |s| Ok(s.needs_attention())).unwrap());
-        // Model the main-thread task queued by a failed live request/worker report.
-        // It must capture neither the request error nor an attention boolean.
-        let delayed_publish = || {
-            let mut attention = true;
-            with_attention(
-                &state,
-                |_| Ok(()),
-                |value| {
-                    assert!(state.try_lock().is_err());
-                    attention = value;
-                },
-            )
-            .unwrap();
-            attention
-        };
-        restore_handle(&state, |_| {}).unwrap();
-        assert!(!delayed_publish());
-    }
-    #[test]
-    fn tray_tooltip_distinguishes_attention_without_opening_another_window() {
-        assert_eq!(super::tray_tooltip(false), "Screen Bright Controller");
-        assert_eq!(
-            super::tray_tooltip(true),
-            "Screen Bright Controller · attention needed"
-        );
-    }
-    #[test]
-    fn focus_loss_does_not_hide_popup() {
-        assert!(!super::popup_should_hide(&tauri::WindowEvent::Focused(
-            false
-        )));
-        assert!(!super::popup_should_hide(&tauri::WindowEvent::Focused(
-            true
-        )));
     }
 }

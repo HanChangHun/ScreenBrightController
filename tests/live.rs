@@ -23,6 +23,9 @@ fn live_gesture_applies_without_consent_and_restore_rejects_old_generation() {
     }
     ui.restore().unwrap();
     assert!(ui.live_control("master", 50, true, 0).is_err());
+    // An obsolete pre-Restore request is cancelled, not a new recovery state.
+    assert!(!ui.status().unwrap().live_blocked);
+    assert!(!ui.needs_attention());
     assert!(armed(&ui).is_empty());
 }
 #[test]
