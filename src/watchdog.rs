@@ -108,7 +108,11 @@ fn response<D: GuardBackend>(g: &Guard<D>, error: Option<String>, snapshot: bool
         error,
         monitors: if snapshot { g.monitors.clone() } else { vec![] },
         armed: g.armed.keys().cloned().collect(),
-        restore_errors: g.errors.clone(),
+        restore_errors: g
+            .errors
+            .iter()
+            .map(|(id, e)| format!("{id}: {e}"))
+            .collect(),
         mock_values: g.driver.values(),
     }
 }

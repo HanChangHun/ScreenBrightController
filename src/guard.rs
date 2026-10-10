@@ -5,7 +5,8 @@ pub struct Guard<D: Driver> {
     pub monitors: Vec<Monitor>,
     pub armed: BTreeMap<String, u64>,
     pub continuous: std::collections::BTreeSet<String>,
-    pub errors: Vec<String>,
+    /// Latest restore failure per display; cleared when its restore succeeds.
+    pub errors: BTreeMap<String, String>,
 }
 impl<D: Driver> Guard<D> {
     pub fn new(mut driver: D) -> Result<Self, String> {
@@ -15,7 +16,7 @@ impl<D: Driver> Guard<D> {
             monitors,
             armed: BTreeMap::new(),
             continuous: Default::default(),
-            errors: vec![],
+            errors: BTreeMap::new(),
         })
     }
     pub fn arm(&mut self, id: &str, seconds: u64, now: u64) -> Result<(), String> {
@@ -63,8 +64,8 @@ impl<D: Driver> Guard<D> {
             // Expiry/death revokes renewal even when restoration must be retried.
             self.continuous.remove(&id);
             if let Err(e) = self.restore(&id) {
-                self.errors.push(format!("{id}: {e}"));
-                self.armed.insert(id, now.saturating_add(1000));
+                self.armed.insert(id.clone(), now.saturating_add(1000));
+                self.errors.insert(id, e);
             }
         }
     }
@@ -84,6 +85,7 @@ impl<D: Driver> Guard<D> {
         self.driver.restore(id, original)?;
         self.armed.remove(id);
         self.continuous.remove(id);
+        self.errors.remove(id);
         Ok(())
     }
 }
@@ -112,5 +114,22 @@ mod tests {
         g.tick(2100, true);
         assert_eq!(g.driver.current["mock-1"][0][0], 40000);
         assert!(g.armed.is_empty());
+    }
+    #[test]
+    fn retried_restore_keeps_one_error_and_clears_it_on_success() {
+        let mut g = Guard::new(Mock {
+            fail_restore: true,
+            ..Default::default()
+        })
+        .unwrap();
+        g.arm_continuous("mock-1", 10, 0).unwrap();
+        for now in (10000..20000).step_by(1000) {
+            g.tick(now, true);
+        }
+        assert_eq!(g.errors.len(), 1);
+        g.driver.fail_restore = false;
+        g.tick(20000, true);
+        assert!(g.armed.is_empty());
+        assert!(g.errors.is_empty());
     }
 }
