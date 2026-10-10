@@ -6,7 +6,6 @@ fn arms_before_write_and_reports_readback() {
     assert_eq!(c.driver.armed, vec!["mock-1"]);
     assert_eq!(c.driver.current["mock-1"][0][0], 30000);
     assert_eq!(result[0].readback_matches, Some(true));
-    assert!(!result[0].visible_effect_verified);
     assert!(c.changed.contains("mock-1"));
 }
 #[test]

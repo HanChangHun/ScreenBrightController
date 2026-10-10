@@ -1,7 +1,6 @@
 //! Backend-owned ephemeral controls; live_control is the intentional user-gesture write boundary.
-use crate::{dimming_percent, session::Session};
+use crate::{controller::Outcome, dimming_percent, session::Session};
 use serde::Serialize;
-use serde_json::{json, Value};
 use std::collections::BTreeMap;
 pub type PopupRect = (i32, i32, u32, u32);
 #[derive(Clone, Debug, PartialEq)]
@@ -73,12 +72,33 @@ pub struct Control {
     pub dim: i64,
     pub enabled: bool,
 }
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Recovery {
+pub enum Recovery {
     Apply,
     Safety,
     Restore,
+}
+#[derive(Serialize)]
+pub struct MonitorStatus {
+    pub id: String,
+    pub name: String,
+    pub supported: bool,
+    pub error: Option<String>,
+    pub dimmed: bool,
+}
+/// Exactly what the popup reads.
+#[derive(Serialize)]
+pub struct Status {
+    pub monitors: Vec<MonitorStatus>,
+    pub restore_errors: Vec<String>,
+    pub controls: BTreeMap<String, Control>,
+    pub generation: u64,
+    pub revision: u64,
+    pub live_blocked: bool,
+    pub recovery: Option<Recovery>,
+    pub outcomes: Vec<Outcome>,
+    pub message: String,
 }
 pub struct UiSession {
     pub session: Session,
@@ -87,12 +107,11 @@ pub struct UiSession {
     pub revision: u64,
     live_blocked: bool,
     recovery: Option<Recovery>,
-    pub outcomes: Value,
+    pub outcomes: Vec<Outcome>,
     pub message: String,
 }
 impl UiSession {
-    pub fn new(mut session: Session) -> Result<Self, String> {
-        let status = session.status()?;
+    pub fn new(session: Session) -> Result<Self, String> {
         let mut controls = BTreeMap::from([(
             "master".into(),
             Control {
@@ -100,12 +119,12 @@ impl UiSession {
                 enabled: true,
             },
         )]);
-        for monitor in status["monitors"].as_array().ok_or("missing monitors")? {
+        for monitor in session.monitors() {
             controls.insert(
-                monitor["id"].as_str().ok_or("missing id")?.into(),
+                monitor.id.clone(),
                 Control {
                     dim: 0,
-                    enabled: monitor["supported"] == true,
+                    enabled: monitor.original.is_some(),
                 },
             );
         }
@@ -116,7 +135,7 @@ impl UiSession {
             revision: 0,
             live_blocked: false,
             recovery: None,
-            outcomes: json!([]),
+            outcomes: vec![],
             message: "No changes applied.".into(),
         })
     }
@@ -124,21 +143,29 @@ impl UiSession {
     pub fn needs_attention(&self) -> bool {
         self.live_blocked || self.recovery.is_some()
     }
-    pub fn status(&mut self) -> Result<Value, String> {
-        let mut status = self.session.status()?;
-        status["generation"] = json!(self.generation);
-        status["revision"] = json!(self.revision);
-        status["controls"] = json!(self.controls);
-        status["live_blocked"] = json!(self.live_blocked);
-        status["recovery"] = json!(self.recovery);
-        status["outcomes"] = self.outcomes.clone();
-        status["message"] = json!(self.message);
-        status["operation"] = json!(if self.session.is_continuous() {
-            "continuous"
-        } else {
-            "idle"
-        });
-        Ok(status)
+    pub fn status(&mut self) -> Result<Status, String> {
+        Ok(Status {
+            restore_errors: self.session.restore_errors()?,
+            monitors: self
+                .session
+                .monitors()
+                .iter()
+                .map(|m| MonitorStatus {
+                    id: m.id.clone(),
+                    name: m.name.clone(),
+                    supported: m.original.is_some(),
+                    error: m.error.clone(),
+                    dimmed: m.original.as_ref().is_some_and(crate::looks_dimmed),
+                })
+                .collect(),
+            controls: self.controls.clone(),
+            generation: self.generation,
+            revision: self.revision,
+            live_blocked: self.live_blocked,
+            recovery: self.recovery,
+            outcomes: self.outcomes.clone(),
+            message: self.message.clone(),
+        })
     }
     /// Only intentional UI gestures use this command. Generation fences all pre-Restore intents.
     pub fn live_control(
@@ -178,12 +205,10 @@ impl UiSession {
         Ok(())
     }
     fn apply(&mut self) -> Result<(), String> {
-        let status = self.session.status()?;
         let master = self.controls["master"].clone();
         let mut targets = vec![];
-        for monitor in status["monitors"].as_array().ok_or("missing monitors")? {
-            let id = monitor["id"].as_str().ok_or("missing id")?;
-            let control = &self.controls[id];
+        for monitor in self.session.monitors() {
+            let control = &self.controls[&monitor.id];
             let dim = if master.enabled {
                 master.dim
             } else {
@@ -191,41 +216,29 @@ impl UiSession {
             };
             let percent = dimming_percent(dim)?;
             targets.push((
-                id.to_string(),
-                if control.enabled && monitor["supported"] == true {
+                monitor.id.clone(),
+                if control.enabled && monitor.original.is_some() {
                     percent
                 } else {
                     100
                 },
             ));
         }
-        self.outcomes = json!([]);
-        let mut out = vec![];
+        self.outcomes.clear();
         for (id, percent) in targets {
             if percent == 100 {
                 self.session.restore_target(&id)?;
                 continue;
             }
-            match self.session.continuous(vec![id], percent) {
-                Ok(mut rows) => {
-                    let failed = rows
-                        .iter()
-                        .any(|r| !r.api_success || r.readback_matches != Some(true));
-                    out.append(&mut rows);
-                    if failed {
-                        self.outcomes = json!(out);
-                        return Err("API rejected, readback failed or driver ignored dimming; attempted targets remain watchdog protected".into());
-                    }
-                }
-                Err(e) => {
-                    self.outcomes = json!(out);
-                    self.message =
-                        format!("Apply stopped: {e}. Attempted targets remain watchdog protected.");
-                    return Err(e);
-                }
+            let rows = self.session.continuous(vec![id], percent)?;
+            let failed = rows
+                .iter()
+                .any(|r| !r.api_success || r.readback_matches != Some(true));
+            self.outcomes.extend(rows);
+            if failed {
+                return Err("API rejected, readback failed or driver ignored dimming; attempted targets remain watchdog protected".into());
             }
         }
-        self.outcomes = json!(out);
         self.message="Continuous operation applied. Closing hides to tray; Restore or Quit returns saved originals. Native lease protection active.".into();
         Ok(())
     }
@@ -255,7 +268,7 @@ impl UiSession {
                 for control in self.controls.values_mut() {
                     control.dim = 0;
                 }
-                self.outcomes = json!([]);
+                self.outcomes.clear();
                 self.message="Saved original gamma restored for attempted targets only. Visible effect unverified.".into();
                 Ok(())
             }

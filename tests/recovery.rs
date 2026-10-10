@@ -1,6 +1,15 @@
 #![cfg(windows)]
-use screen_bright_controller::{linear_ramp, scale, session::Session, ui::UiSession};
-use serde_json::json;
+use screen_bright_controller::{
+    linear_ramp, scale,
+    session::Session,
+    ui::{Recovery, UiSession},
+};
+fn armed(ui: &UiSession) -> Vec<String> {
+    let Session::Demo(c) = &ui.session else {
+        unreachable!()
+    };
+    c.changed.iter().cloned().collect()
+}
 
 #[test]
 fn safety_stop_and_failed_restore_expose_distinct_recovery_actions() {
@@ -11,40 +20,40 @@ fn safety_stop_and_failed_restore_expose_distinct_recovery_actions() {
     }
     assert!(ui.heartbeat().is_err());
     let stopped = ui.status().unwrap();
-    assert_eq!(stopped["live_blocked"], true);
-    assert_eq!(stopped["recovery"], "safety");
+    assert!(stopped.live_blocked);
+    assert_eq!(stopped.recovery, Some(Recovery::Safety));
     if let Session::Demo(c) = &mut ui.session {
         c.driver.fail_restore = true;
     }
     assert!(ui.restore().is_err());
     let failed = ui.status().unwrap();
-    assert_eq!(failed["live_blocked"], true);
-    assert_eq!(failed["recovery"], "restore");
-    assert!(!failed["armed"].as_array().unwrap().is_empty());
+    assert!(failed.live_blocked);
+    assert_eq!(failed.recovery, Some(Recovery::Restore));
+    assert!(!armed(&ui).is_empty());
     if let Session::Demo(c) = &mut ui.session {
         c.driver.fail_restore = false;
     }
     ui.restore().unwrap();
-    assert_eq!(ui.status().unwrap()["recovery"], json!(null));
+    assert_eq!(ui.status().unwrap().recovery, None);
 }
 
 #[test]
 fn failed_live_request_exposes_a_paused_state_until_explicit_restore() {
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
-    assert_eq!(ui.status().unwrap()["live_blocked"], false);
-    assert_eq!(ui.status().unwrap()["recovery"], json!(null));
+    assert!(!ui.status().unwrap().live_blocked);
+    assert_eq!(ui.status().unwrap().recovery, None);
     ui.live_control("master", 35, true, 0).unwrap();
     if let Session::Demo(c) = &mut ui.session {
         c.driver.ignored_set = true;
     }
     assert!(ui.live_control("master", 52, true, 0).is_err());
     let failed = ui.status().unwrap();
-    assert_eq!(failed["live_blocked"], true);
-    assert_eq!(failed["recovery"], "apply");
-    assert_eq!(failed["controls"]["master"]["dim"], 52); // A requested value, NOT an applied-value claim.
-    assert_eq!(failed["outcomes"][0]["readback_matches"], false);
+    assert!(failed.live_blocked);
+    assert_eq!(failed.recovery, Some(Recovery::Apply));
+    assert_eq!(failed.controls["master"].dim, 52); // A requested value, NOT an applied-value claim.
+    assert_eq!(failed.outcomes[0].readback_matches, Some(false));
     assert!(ui.live_control("master", 53, true, 1).is_err());
-    assert_eq!(ui.status().unwrap()["message"], failed["message"]);
+    assert_eq!(ui.status().unwrap().message, failed.message);
     ui.heartbeat().unwrap();
     if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.writes, 3); // Two accepted writes, one ignored attempt; no retry loop.
@@ -52,16 +61,16 @@ fn failed_live_request_exposes_a_paused_state_until_explicit_restore() {
     }
     ui.restore().unwrap();
     let restored = ui.status().unwrap();
-    assert_eq!(restored["live_blocked"], false);
-    assert_eq!(restored["recovery"], json!(null));
-    assert_eq!(restored["controls"]["master"]["dim"], 0);
-    assert_eq!(restored["armed"], json!([]));
+    assert!(!restored.live_blocked);
+    assert_eq!(restored.recovery, None);
+    assert_eq!(restored.controls["master"].dim, 0);
+    assert!(armed(&ui).is_empty());
 }
 
 #[test]
 fn dimmed_baseline_is_flagged_and_reset_only_while_not_dimming() {
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
-    assert_eq!(ui.status().unwrap()["monitors"][0]["dimmed"], false);
+    assert!(!ui.status().unwrap().monitors[0].dimmed);
     assert!(
         ui.reset_baseline().is_ok(),
         "nothing flagged, nothing written"
@@ -70,12 +79,12 @@ fn dimmed_baseline_is_flagged_and_reset_only_while_not_dimming() {
         assert_eq!(c.driver.writes, 0);
         c.monitors[0].original = Some(scale(&linear_ramp(), 50).unwrap());
     }
-    assert_eq!(ui.status().unwrap()["monitors"][0]["dimmed"], true);
+    assert!(ui.status().unwrap().monitors[0].dimmed);
     ui.live_control("master", 20, true, 0).unwrap();
     assert!(ui.reset_baseline().is_err());
     ui.restore().unwrap();
     ui.reset_baseline().unwrap();
-    assert_eq!(ui.status().unwrap()["monitors"][0]["dimmed"], false);
+    assert!(!ui.status().unwrap().monitors[0].dimmed);
     if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.current["mock-1"], linear_ramp());
     }

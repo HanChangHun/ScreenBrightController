@@ -53,9 +53,10 @@ fn startup_arguments_are_exact_and_never_route_to_watchdog() {
         screen_bright_controller::session::Session::demo().unwrap(),
     )
     .unwrap();
-    assert_eq!(session.status().unwrap()["armed"], serde_json::json!([]));
     session.heartbeat().unwrap();
-    assert_eq!(session.status().unwrap()["controls"]["master"]["dim"], 0);
+    let status = session.status().unwrap();
+    assert_eq!(status.controls["master"].dim, 0);
+    assert!(status.outcomes.is_empty());
 }
 #[derive(Default)]
 struct Memory {

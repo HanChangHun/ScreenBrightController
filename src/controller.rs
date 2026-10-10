@@ -43,13 +43,12 @@ pub fn reset_baseline(
     monitor.original = Some(linear);
     Ok(())
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Outcome {
     pub id: String,
     pub api_success: bool,
     pub readback_matches: Option<bool>,
     pub readback_error: Option<String>,
-    pub visible_effect_verified: bool,
 }
 pub struct Controller<D: Driver> {
     pub driver: D,
@@ -110,7 +109,6 @@ impl<D: Driver> Controller<D> {
                 api_success,
                 readback_matches: readback.as_ref().ok().map(|r| r == &ramp),
                 readback_error: readback.err(),
-                visible_effect_verified: false,
             });
         }
         Ok(out)

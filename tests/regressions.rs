@@ -34,7 +34,6 @@ fn api_success_is_not_readback_or_visible_effect() {
     let out = c.apply_continuous(&["mock-1".into()], 50).unwrap();
     assert!(out[0].api_success);
     assert_eq!(out[0].readback_matches, Some(false));
-    assert!(!out[0].visible_effect_verified);
     c.restore_all().unwrap();
 }
 #[test]

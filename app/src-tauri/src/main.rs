@@ -2,7 +2,7 @@
 use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     session::Session,
-    ui::{popup_bounds, popup_min_size, popup_reopen_bounds, PopupArea, UiSession},
+    ui::{popup_bounds, popup_min_size, popup_reopen_bounds, PopupArea, Status, UiSession},
 };
 use std::sync::Mutex;
 static STARTUP_LOCK: Mutex<()> = Mutex::new(());
@@ -71,7 +71,7 @@ fn with_session<T>(
         .map_err(|e| e.clone())?)
 }
 #[tauri::command]
-fn status(state: tauri::State<'_, State>) -> Result<serde_json::Value, String> {
+fn status(state: tauri::State<'_, State>) -> Result<Status, String> {
     with_session(&state, UiSession::status)
 }
 fn with_attention<T>(
@@ -121,7 +121,7 @@ fn live_control(
     generation: u64,
     state: tauri::State<'_, State>,
     app: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
+) -> Result<Status, String> {
     let result = with_session(&state, |s| {
         s.live_control(&id, dim, enabled, generation)?;
         s.status()
@@ -131,20 +131,14 @@ fn live_control(
     result
 }
 #[tauri::command]
-fn restore(
-    state: tauri::State<'_, State>,
-    app: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
+fn restore(state: tauri::State<'_, State>, app: tauri::AppHandle) -> Result<Status, String> {
     let result = restore_app(&state, &app);
     let _ = app.emit("state-changed", ());
     result?;
     with_session(&state, UiSession::status)
 }
 #[tauri::command]
-fn reset_baseline(
-    state: tauri::State<'_, State>,
-    app: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
+fn reset_baseline(state: tauri::State<'_, State>, app: tauri::AppHandle) -> Result<Status, String> {
     let result = with_session(&state, |s| {
         s.reset_baseline()?;
         s.status()
@@ -646,8 +640,8 @@ mod popup_policy_tests {
         writer.join().unwrap();
         restore.join().unwrap();
         let final_state = with_session(&state, UiSession::status).unwrap();
-        assert_eq!(final_state["generation"], 1);
-        assert_eq!(final_state["controls"]["master"]["dim"], 0);
+        assert_eq!(final_state.generation, 1);
+        assert_eq!(final_state.controls["master"].dim, 0);
     }
     #[test]
     fn delayed_attention_publication_reads_post_restore_state() {
