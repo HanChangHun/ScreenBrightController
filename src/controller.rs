@@ -181,6 +181,27 @@ impl<D: Driver> Controller<D> {
         }
         Ok(())
     }
+    /// Forget displays the watchdog already restored after their lease lapsed (e.g. sleep).
+    pub fn release_unarmed(&mut self, armed: &[String]) -> Result<(), String> {
+        let lost: Vec<String> = self
+            .changed
+            .keys()
+            .filter(|id| !armed.contains(id))
+            .cloned()
+            .collect();
+        for id in &lost {
+            self.changed.remove(id);
+            self.expected.remove(id);
+        }
+        if lost.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "{}: lease expired and the watchdog restored the original",
+                lost.join(", ")
+            ))
+        }
+    }
     pub fn restore_target(&mut self, id: &str) -> Result<(), String> {
         if !self.changed.contains_key(id) {
             return Ok(());

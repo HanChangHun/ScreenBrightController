@@ -79,3 +79,17 @@ fn heartbeat_detects_external_change_without_fighting() {
     assert!(c.changed.is_empty());
     assert_eq!(c.driver.current["mock-1"][0][0], 40000);
 }
+#[test]
+fn watchdog_restored_lease_is_reported_and_forgotten() {
+    let mut c = Controller::new(Mock::default()).unwrap();
+    c.apply_continuous(&["mock-1".into(), "mock-2".into()], 70, true)
+        .unwrap();
+    let error = c.release_unarmed(&["mock-2".into()]).unwrap_err();
+    assert!(
+        error.contains("mock-1") && !error.contains("mock-2"),
+        "{error}"
+    );
+    assert!(!c.changed.contains_key("mock-1") && !c.expected.contains_key("mock-1"));
+    assert!(c.changed.contains_key("mock-2") && c.expected.contains_key("mock-2"));
+    c.release_unarmed(&["mock-2".into()]).unwrap();
+}

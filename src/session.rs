@@ -19,7 +19,6 @@ impl Session {
         let (mode, monitors, armed, errors) = match self {
             Self::Real(c) => {
                 let status = c.driver.status()?;
-                c.changed.retain(|id, _| status.armed.contains(id));
                 ("real", &c.monitors, status.armed, status.restore_errors)
             }
             Self::Demo(c, deadline) => {
@@ -55,13 +54,21 @@ impl Session {
             }
         }
     }
+    /// Report, never hide, displays whose lease lapsed: the slider would show a stale value.
+    fn sync_leases(&mut self) -> Result<(), String> {
+        if let Self::Real(c) = self {
+            let armed = c.driver.status()?.armed;
+            c.release_unarmed(&armed)?;
+        }
+        Ok(())
+    }
     pub fn continuous(
         &mut self,
         ids: Vec<String>,
         percent: u8,
         consent: bool,
     ) -> Result<Vec<Outcome>, String> {
-        self.status()?;
+        self.sync_leases()?;
         match self {
             Self::Real(c) => c.apply_continuous(&ids, percent, consent),
             Self::Demo(c, _) => c.apply_continuous(&ids, percent, consent),
@@ -74,7 +81,7 @@ impl Session {
         }
     }
     pub fn heartbeat(&mut self) -> Result<(), String> {
-        self.status()?;
+        self.sync_leases()?;
         match self {
             Self::Real(c) => c.heartbeat(),
             Self::Demo(c, _) => c.heartbeat(),
