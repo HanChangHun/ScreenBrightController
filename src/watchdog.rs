@@ -282,6 +282,8 @@ impl Link {
         if self.child.try_wait().map_err(|e| e.to_string())?.is_some() {
             return Err("watchdog exited; no gamma writes allowed".into());
         }
+        // A reply that arrived after an earlier timeout must not answer this request.
+        while self.output.try_recv().is_ok() {}
         let input = self.input.as_mut().ok_or("watchdog disconnected")?;
         serde_json::to_writer(&mut *input, &request).map_err(|e| e.to_string())?;
         writeln!(input).map_err(|e| e.to_string())?;
@@ -429,5 +431,13 @@ mod tests {
         reply_later(&tx, Some("rejected"));
         let error = real.restore("missing", &vec![vec![0; 256]; 3]).unwrap_err();
         assert_eq!(error, "rejected");
+    }
+    #[test]
+    fn late_reply_is_not_read_as_the_next_answer() {
+        let (mut link, tx) = link(true);
+        tx.send(reply(Some("late reply to a timed-out request")))
+            .unwrap();
+        reply_later(&tx, None);
+        assert!(link.request(Request::Status).unwrap().ok);
     }
 }
