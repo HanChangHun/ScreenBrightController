@@ -14,13 +14,6 @@ class IconAssets(unittest.TestCase):
             self.assertEqual(im.size, (256,256))
             self.assertEqual(im.convert('RGBA').getpixel((0,0))[3], 0)
             self.assertGreater(sum(im.getpixel((60,60))[:3]), sum(im.getpixel((190,150))[:3]))
-    def test_tray_rgba_matches_png(self):
-        with Image.open(ICONS / 'tray.png') as im:
-            self.assertEqual(im.size, (32,32))
-            self.assertEqual((ICONS / 'tray.rgba').read_bytes(), im.convert('RGBA').tobytes())
-    def test_native_tray_uses_asset(self):
-        source = (ROOT / 'app/src-tauri/src/main.rs').read_text(encoding='utf-8')
-        self.assertIn('include_bytes!("../icons/tray.rgba")', source)
 
 if __name__ == '__main__':
     unittest.main()

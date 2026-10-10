@@ -1,6 +1,6 @@
-"""Read-only checks: preserve supplied ICO; verify derived tray pixels and PE icon resources."""
+"""Read-only checks: preserve supplied ICO; verify derived tray/window PNGs and PE icon resources."""
 from pathlib import Path
-import argparse, ctypes, hashlib, json, struct, zlib
+import argparse, ctypes, hashlib, json, struct
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--exe", type=Path, default=root / 'target/release/ScreenBrightController.exe')
@@ -22,50 +22,6 @@ for i in range(struct.unpack_from('<H', data, 4)[0]):
     entries[w or 256] = data[offset:offset + size]
 assert (icons / 'icon.png').read_bytes() == entries[256]
 assert (icons / 'tray.png').read_bytes() == entries[32]
-# PNG decode using stdlib (8-bit RGBA only), no image regeneration or ICO writes.
-png = entries[32]
-assert png[:8] == b'\x89PNG\r\n\x1a\n'
-pos = 8
-idat = b''
-while pos < len(png):
-    length = struct.unpack_from('>I', png, pos)[0]
-    kind = png[pos + 4:pos + 8]
-    content = png[pos + 8:pos + 8 + length]
-    if kind == b'IHDR':
-        width, height, depth, color, _, _, interlace = struct.unpack('>IIBBBBB', content)
-        assert (width, height, depth, color, interlace) == (32, 32, 8, 6, 0)
-    if kind == b'IDAT':
-        idat += content
-    pos += length + 12
-raw = zlib.decompress(idat)
-stride = width * 4
-previous = bytearray(stride)
-pixels = bytearray()
-for y in range(height):
-    start = y * (stride + 1)
-    filt = raw[start]
-    row = bytearray(raw[start + 1:start + 1 + stride])
-    for x in range(stride):
-        a = row[x - 4] if x >= 4 else 0
-        b = previous[x]
-        c = previous[x - 4] if x >= 4 else 0
-        if filt == 1:
-            predictor = a
-        elif filt == 2:
-            predictor = b
-        elif filt == 3:
-            predictor = (a + b) // 2
-        elif filt == 4:
-            p = a + b - c
-            distances = [abs(p - a), abs(p - b), abs(p - c)]
-            predictor = [a, b, c][distances.index(min(distances))]
-        else:
-            assert filt == 0
-            predictor = 0
-        row[x] = (row[x] + predictor) & 255
-    pixels.extend(row)
-    previous = row
-assert bytes(pixels) == (icons / 'tray.rgba').read_bytes(), 'Tray not from supplied icon'
 # Open executable strictly as a resource data file: no app code/startup/display calls.
 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
 kernel.LoadLibraryExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_uint32]
@@ -118,6 +74,6 @@ for key in ('ProductName', 'FileDescription', 'ProductVersion'):
     metadata[key] = ctypes.wstring_at(pointer.value)
 assert metadata['ProductName'] == metadata['FileDescription'] == 'Screen Bright Controller'
 assert metadata['ProductVersion'] == json.loads((root / 'app/src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version']
-result = {'metadata': metadata, 'supplied_ico_sha256': expected, 'ico_unchanged': True, 'pe_icon_entries_match': len(resource_bytes), 'window_png_matches_ico_256': True, 'tray_rgba_matches_ico_32': True, 'native_display_writes': 0}
+result = {'metadata': metadata, 'supplied_ico_sha256': expected, 'ico_unchanged': True, 'pe_icon_entries_match': len(resource_bytes), 'window_png_matches_ico_256': True, 'tray_png_matches_ico_32': True, 'native_display_writes': 0}
 (evidence / 'icon.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
 print(json.dumps(result, indent=2))

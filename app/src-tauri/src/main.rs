@@ -368,9 +368,8 @@ fn main() {
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "Restore and quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&restore_item, &quit_item])?;
-            let pixels = include_bytes!("../icons/tray.rgba").to_vec();
             TrayIconBuilder::with_id(TRAY_ID)
-                .icon(tauri::image::Image::new_owned(pixels, 32, 32))
+                .icon(tauri::include_image!("icons/tray.png"))
                 .tooltip(tray_tooltip(false))
                 .menu(&menu)
                 .show_menu_on_left_click(false)

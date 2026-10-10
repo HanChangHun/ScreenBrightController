@@ -35,9 +35,7 @@ master.save(OUT / 'icon.png')
 master.save(OUT / 'icon.ico',sizes=[(s,s) for s in SIZES],append_images=[render(s) for s in SIZES[:-1]])
 for size in SIZES:
     render(size).save(OUT / f'screen-bright-controller-{size}.png')
-tray = render(32)
-tray.save(OUT / 'tray.png')
-(OUT / 'tray.rgba').write_bytes(tray.tobytes())
+render(32).save(OUT / 'tray.png')
 svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><clipPath id="screen"><rect x="34" y="46" width="188" height="128" rx="7"/></clipPath></defs><rect x="16" y="28" width="224" height="164" rx="18" fill="#8D959D"/><rect x="22" y="34" width="212" height="152" rx="13" fill="#262B31"/><g clip-path="url(#screen)"><rect x="34" y="46" width="188" height="128" fill="#3B424B"/><path d="M34 46H222L34 174Z" fill="#F4EEDC"/></g><rect x="115" y="190" width="26" height="26" rx="3" fill="#8D959D"/><rect x="80" y="211" width="96" height="14" rx="7" fill="#8D959D"/></svg>'''
 (OUT / 'screen-bright-controller.svg').write_text(svg,encoding='utf-8')
 # Visual proof: actual exported sizes on both taskbar tones.
@@ -49,4 +47,4 @@ for xbase in (0,340):
     for x,size in [(12,16),(42,24),(84,32)]:
         im=render(size);board.paste(im,(xbase+x,235),im)
 board.save(OUT / 'icon-preview.png')
-print('Generated SVG, PNG, multi-resolution ICO and tray RGBA:',OUT)
+print('Generated SVG, PNG and multi-resolution ICO:',OUT)
