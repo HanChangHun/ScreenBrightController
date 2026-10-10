@@ -396,10 +396,8 @@ fn main() {
                         }
                         let _ = app.emit("state-changed", ());
                     }
-                    "quit" => match restore_app(&app.state::<State>(), app) {
-                        Ok(()) => app.exit(0),
-                        Err(e) => report(app, e),
-                    },
+                    // ExitRequested restores once and cancels the exit if that fails.
+                    "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
@@ -433,17 +431,13 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("Tauri application failed to initialize");
-    app.run(|app, event| match event {
-        tauri::RunEvent::ExitRequested { api, .. } => {
+    app.run(|app, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
             if let Err(e) = restore_app(&app.state::<State>(), app) {
                 api.prevent_exit();
                 report(app, e)
             }
         }
-        tauri::RunEvent::Exit => {
-            let _ = restore_app(&app.state::<State>(), app);
-        }
-        _ => {}
     });
 }
 #[cfg(test)]
