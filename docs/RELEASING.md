@@ -9,10 +9,11 @@ From the repository root on Windows x64 with Rust/MSVC, Node/npm and Python 3.11
 ```sh
 npm --prefix app ci --ignore-scripts
 python scripts/test_packaging.py
+uv run --with pillow python scripts/test_icon_assets.py
 cargo test --workspace --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-node scripts/ui-smoke.cjs
+node scripts/ui-live.cjs
 node scripts/ui-settings.cjs
 node scripts/ui-recovery.cjs
 node scripts/ui-geometry.cjs
@@ -21,6 +22,8 @@ python scripts/verify-release.py
 python scripts/verify-icon.py
 python scripts/verify-continuous.py
 ```
+
+This is the canonical check list. `cargo test` and the verify scripts read real gamma ramps but never write them.
 
 The CLI is pinned to 2.12.1 in `app/package.json` and `app/package-lock.json`. Review its generated NSIS `CheckIfAppIsRunning` call sites when upgrading the CLI: `windows/installer-hooks.nsh` replaces that shared macro to **refuse** a running executable instead of closing processes. Restart Manager errors are fail-closed. Both the app and its watchdog use the same executable, so either must be stopped normally before installation/removal. Never force-kill a real gamma process to build, install or delete old artifacts.
 
@@ -32,7 +35,7 @@ Outputs:
 
 For a version bump, align `Cargo.toml`, `app/src-tauri/Cargo.toml`, `app/src-tauri/tauri.conf.json` and `app/package.json`, and refresh their lockfiles using Cargo/npm. Do not alter the supplied icon or gamma behavior as part of packaging.
 
-The workspace packages are `screen-bright-controller` and `screen-bright-controller-tray`; the optional diagnostic target is `screen-bright-controller-cli`. The internal watchdog parent variable is `SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT`, and native/frontend error events use `display-error`. Keep both ends and the memory verification fixtures in sync. A source-package rename must not change the public installation identity. Reference PNG checks require Pillow (`uv run --with pillow python scripts/test_icon_assets.py` when uv is available); do not run the icon generator over the supplied ICO.
+The workspace packages are `screen-bright-controller` and `screen-bright-controller-tray`; the optional diagnostic target is `screen-bright-controller-cli`. The internal watchdog parent variable is `SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT`, and native/frontend error events use `display-error`. Keep both ends and the memory verification fixtures in sync. A source-package rename must not change the public installation identity. Do not run the icon generator over the supplied ICO.
 
 ## Install acceptance
 
@@ -55,4 +58,4 @@ Uninstall cleanup only removes the app's `ScreenBrightController` Run value when
 5. Link the release and note that updates are manual and the executable is not code-signed.
 6. Once the separate installed app is verified, delete only the enumerated obsolete `dist` executables. Keep the current installer and checksum file; do not delete source, icons, app data, or active executables.
 
-Native dimming limits, HDR/ICC/Night Light conflicts, hotplug and recovery limitations remain as documented in `MANUAL_TESTS.md` and `VALIDATION.md`. Passing installer checks does not establish perceived gamma effects or Windows login behavior.
+Native dimming limits, HDR/ICC/Night Light conflicts, hotplug and recovery limitations remain as documented in the README and `MANUAL_TESTS.md`. Passing installer checks does not establish perceived gamma effects or Windows login behavior.

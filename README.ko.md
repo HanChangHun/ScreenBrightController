@@ -24,6 +24,7 @@ Windows x64가 필요합니다. 관리자 권한 없이 설치하며, WebView2�
 
 - 모니터 백라이트 밝기가 아닌 GPU 감마를 조절합니다.
 - 드라이버 제한과 HDR/ICC/Night Light의 영향을 받으며, 모든 환경에서 0–90 전체 범위의 효과를 보장하지 않습니다.
+- 알려진 한계: 하드웨어 커서는 밝게 남을 수 있고, 드라이버가 변경을 늦게 반영할 수 있으며, 디밍 중 모니터 연결 변경·디스플레이 ID 재사용·GPU/OS 재설정은 지원하지 않습니다. API 성공이나 읽기 확인 일치가 실제 화면 효과를 보장하지 않으며, 네이티브 호출이 멈추거나 앱과 감시 프로세스가 모두 종료되면 복원은 최선의 시도에 그칩니다.
 - 오류로 조작이 잠기면 **Restore**로 복원한 뒤 더 낮은 값을 시도하세요.
 - 실행 시 저장된 감마가 이미 정상보다 크게 어두우면(예: 앱과 감시 프로세스가 디밍 중 함께 종료된 경우) 조절 창에 경고와 **Reset to default ramp** 버튼이 나타납니다. 보정(ICC) 감마는 원래 선형이 아닐 수 있으므로 자동으로 초기화하지 않습니다.
 - 업데이트는 수동입니다. 업데이트·제거 전에는 **Restore and quit**으로 종료하세요.
@@ -42,4 +43,4 @@ npm --prefix app run build
 
 ## 문서
 
-[사용 가이드](docs/USAGE.ko.md) · [검증 기록](VALIDATION.md) · [수동 확인](MANUAL_TESTS.md) · [문제 제보](https://github.com/HanChangHun/ScreenBrightController/issues)
+[사용 가이드](docs/USAGE.ko.md) · [수동 확인](MANUAL_TESTS.md) · [문제 제보](https://github.com/HanChangHun/ScreenBrightController/issues)
