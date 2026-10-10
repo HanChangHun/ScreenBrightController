@@ -31,6 +31,20 @@ class PackagingTests(unittest.TestCase):
             "type": "embedBootstrapper", "silent": True,
         })
 
+    def test_installer_refuses_running_apps_without_terminating_them(self):
+        hooks = ROOT / "app/src-tauri/windows/installer-hooks.nsh"
+        self.assertTrue(hooks.is_file(), "Non-terminating installer hooks are required")
+        source = hooks.read_text(encoding="utf-8")
+        self.assertIn("!macroundef CheckIfAppIsRunning", source)
+        self.assertIn("!macro CheckIfAppIsRunning executablePath productName", source)
+        self.assertIn("RmGetList", source)
+        self.assertIn("SetErrorLevel 1618", source)
+        self.assertIn("SetErrorLevel 1603", source)
+        self.assertIn("Restore and quit", source)
+        # A gamma recovery watchdog must never be stopped by the installer.
+        for forbidden in ("RmShutdown", "RmForceShutdown", "TerminateProcess", "taskkill", "_KillProcess"):
+            self.assertNotIn(forbidden, source)
+
     def test_only_a_hidden_tray_popup_with_local_window_permissions(self):
         self.assertEqual([w["label"] for w in CONFIG["app"]["windows"]], ["popup"])
         popup = CONFIG["app"]["windows"][0]
