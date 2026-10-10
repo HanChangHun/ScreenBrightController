@@ -110,6 +110,18 @@ pub fn serve(mock: bool) -> Result<(), String> {
         serve_backend(Native, parent)
     }
 }
+/// How long restoration keeps retrying after the parent is gone.
+const RETRY_WINDOW_MS: u64 = 60_000;
+/// Returns the new start of the retry window and whether the watchdog should give up.
+/// The window opens at parent death (`death_at`) and restarts on every tick that waits for
+/// an unplugged display, so a returned display gets the full window of restore retries.
+fn retry_window(death_at: Option<u64>, now: u64, waiting_for_display: bool) -> (Option<u64>, bool) {
+    match death_at {
+        Some(_) if waiting_for_display => (Some(now), false),
+        Some(start) => (Some(start), now.saturating_sub(start) > RETRY_WINDOW_MS),
+        None => (None, false),
+    }
+}
 fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), String> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
@@ -152,8 +164,11 @@ fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), Strin
             let _ = respond(&response(&g, None, false));
             return Ok(());
         }
-        // An unplugged display keeps its original until it returns; other failures stop after 60s.
-        if death_at.is_some_and(|t| now - t > 60000) && !g.waiting_for_display() {
+        // An unplugged display keeps its original until it returns; other failures stop after
+        // 60s of retries, counted from parent death or from the display's return.
+        let (window_start, give_up) = retry_window(death_at, now, g.waiting_for_display());
+        death_at = window_start;
+        if give_up {
             let _ = respond(&response(
                 &g,
                 Some("restoration failed after 60s retries".into()),
@@ -401,5 +416,49 @@ mod tests {
             .unwrap();
         reply_later(&tx, None);
         assert!(link.request(Request::Status).unwrap().ok);
+    }
+    #[test]
+    fn returned_display_gets_a_full_retry_window_after_a_long_unplug() {
+        /// One serve_backend iteration after the parent died, with memory mocks only.
+        fn step(g: &mut Guard<Mock>, death_at: &mut Option<u64>, now: u64) -> &'static str {
+            death_at.get_or_insert(now);
+            g.tick(now, false);
+            if g.armed.is_empty() {
+                return "restored";
+            }
+            let (window_start, give_up) = retry_window(*death_at, now, g.waiting_for_display());
+            *death_at = window_start;
+            if give_up {
+                "gave up"
+            } else {
+                "running"
+            }
+        }
+        let mut g = Guard::new(Mock::default()).unwrap();
+        g.arm_continuous("mock-1", 10, 0).unwrap();
+        g.driver.set("mock-1", &vec![vec![100; 256]; 3]).unwrap();
+        g.driver.detached = vec!["mock-1".into()];
+        let mut death_at = None;
+        // Unplugged for 90s after the parent died: the watchdog keeps waiting.
+        for now in (1..90_001).step_by(100) {
+            assert_eq!(step(&mut g, &mut death_at, now), "running", "at {now}ms");
+        }
+        assert!(g.waiting_for_display());
+        // The display returns, but its first restore fails for another reason.
+        g.driver.detached.clear();
+        g.driver.fail_restore = true;
+        let returned = 90_001;
+        for now in (returned..returned + 60_000).step_by(100) {
+            let state = step(&mut g, &mut death_at, now);
+            assert_eq!(state, "running", "{}ms after the return", now - returned);
+            assert!(!g.waiting_for_display() && g.errors.contains_key("mock-1"));
+        }
+        // The window does end 60s after the return if restoration keeps failing.
+        assert!(retry_window(death_at, returned + 60_000, false).1);
+        // A later retry succeeds and disarms the target with its original restored.
+        g.driver.fail_restore = false;
+        assert_eq!(step(&mut g, &mut death_at, returned + 60_000), "restored");
+        assert!(g.armed.is_empty() && g.errors.is_empty());
+        assert_eq!(g.driver.current["mock-1"][0][0], 40000);
     }
 }
