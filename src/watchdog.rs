@@ -21,6 +21,7 @@ pub enum Request {
     Continuous { id: String, lease: u64 },
     Renew { id: String, lease: u64 },
     Restore { id: String },
+    Reset { id: String },
     Status,
     Quit,
 }
@@ -210,6 +211,7 @@ fn serve_backend<D: GuardBackend>(driver: D, secret: String, parent: Parent) -> 
                         g.renew(&id, lease, clock.elapsed().as_millis() as u64)
                     }
                     Ok(Request::Restore { id }) => g.restore(&id),
+                    Ok(Request::Reset { id }) if !quitting => g.reset(&id),
                     Ok(Request::Status) => Ok(()),
                     Ok(Request::Quit) => {
                         quitting = true;
@@ -362,6 +364,10 @@ impl Driver for Real {
     }
     fn read(&mut self, id: &str) -> Result<Ramp, String> {
         Native.read(id)
+    }
+    fn reset(&mut self, id: &str, _linear: &Ramp) -> Result<(), String> {
+        self.link.request(Request::Reset { id: id.into() })?;
+        Ok(())
     }
     fn restore(&mut self, id: &str, original: &Ramp) -> Result<(), String> {
         match self.link.request(Request::Restore { id: id.into() }) {

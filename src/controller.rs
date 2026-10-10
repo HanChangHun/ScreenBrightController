@@ -20,6 +20,28 @@ pub trait Driver {
     fn set(&mut self, id: &str, ramp: &Ramp) -> Result<bool, String>;
     fn read(&mut self, id: &str) -> Result<Ramp, String>;
     fn restore(&mut self, id: &str, original: &Ramp) -> Result<(), String>;
+    /// Write `linear` as the new saved original; the real backend asks its watchdog.
+    fn reset(&mut self, id: &str, linear: &Ramp) -> Result<(), String> {
+        self.restore(id, linear)
+    }
+}
+/// User-initiated recovery from a dimmed saved original (see `looks_dimmed`); never automatic.
+pub fn reset_baseline(
+    driver: &mut impl Driver,
+    monitors: &mut [Monitor],
+    id: &str,
+) -> Result<(), String> {
+    let monitor = monitors
+        .iter_mut()
+        .find(|m| m.id == id)
+        .ok_or("unknown display")?;
+    if !monitor.original.as_ref().is_some_and(crate::looks_dimmed) {
+        return Err("saved gamma is not dimmed".into());
+    }
+    let linear = crate::linear_ramp();
+    driver.reset(id, &linear)?;
+    monitor.original = Some(linear);
+    Ok(())
 }
 #[derive(Debug, Serialize)]
 pub struct Outcome {
@@ -216,6 +238,12 @@ impl<D: Driver> Controller<D> {
         self.changed.remove(id);
         self.expected.remove(id);
         Ok(())
+    }
+    pub fn reset_baseline(&mut self, id: &str) -> Result<(), String> {
+        if self.changed.contains_key(id) {
+            return Err("restore before resetting".into());
+        }
+        reset_baseline(&mut self.driver, &mut self.monitors, id)
     }
     pub fn restore_all(&mut self) -> Result<(), String> {
         let mut errors = vec![];

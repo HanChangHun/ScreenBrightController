@@ -141,6 +141,18 @@ fn restore(
     with_session(&state, UiSession::status)
 }
 #[tauri::command]
+fn reset_baseline(
+    state: tauri::State<'_, State>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    let result = with_session(&state, |s| {
+        s.reset_baseline()?;
+        s.status()
+    });
+    let _ = app.emit("state-changed", ());
+    result
+}
+#[tauri::command]
 fn hide_popup(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("popup") {
         let _ = w.hide();
@@ -318,6 +330,7 @@ fn main() {
             status,
             live_control,
             restore,
+            reset_baseline,
             hide_popup
         ])
         .setup(move |app| {

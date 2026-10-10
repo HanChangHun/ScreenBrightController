@@ -19,6 +19,16 @@ pub fn dimming_percent(dim: i64) -> Result<u8, String> {
     }
     Ok((100 - dim) as u8)
 }
+/// The identity ramp Windows uses when no calibration is loaded.
+pub fn linear_ramp() -> Ramp {
+    vec![(0..=255u16).map(|i| i * 257).collect(); 3]
+}
+/// A saved original this far below linear was probably captured while still dimmed (both
+/// processes died). ICC/VCGT calibration stays near the top, so this only warns.
+pub fn looks_dimmed(ramp: &Ramp) -> bool {
+    ramp.iter()
+        .all(|c| c.last().is_some_and(|top| *top < 39321))
+}
 pub fn scale(original: &Ramp, percent: u8) -> Result<Ramp, String> {
     if !(10..=100).contains(&percent)
         || original.len() != 3
@@ -56,5 +66,17 @@ mod tests {
         assert_eq!(result[1][100], 1000);
         assert_eq!(result[2][100], 2000);
         assert_eq!(scale(&original, 100).unwrap(), original);
+    }
+    #[test]
+    fn only_a_ramp_dimmed_on_every_channel_looks_dimmed() {
+        let linear = linear_ramp();
+        assert_eq!(linear[0][255], 65535);
+        assert!(!looks_dimmed(&linear));
+        assert!(!looks_dimmed(&scale(&linear, 90).unwrap()));
+        let dimmed = scale(&linear, 50).unwrap();
+        assert!(looks_dimmed(&dimmed));
+        let mut one_bright = dimmed.clone();
+        one_bright[2] = linear[2].clone();
+        assert!(!looks_dimmed(&one_bright));
     }
 }

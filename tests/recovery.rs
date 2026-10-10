@@ -1,5 +1,5 @@
 #![cfg(windows)]
-use screen_bright_controller::{session::Session, ui::UiSession};
+use screen_bright_controller::{linear_ramp, scale, session::Session, ui::UiSession};
 use serde_json::json;
 
 #[test]
@@ -56,4 +56,27 @@ fn failed_live_request_exposes_a_paused_state_until_explicit_restore() {
     assert_eq!(restored["recovery"], json!(null));
     assert_eq!(restored["controls"]["master"]["dim"], 0);
     assert_eq!(restored["armed"], json!([]));
+}
+
+#[test]
+fn dimmed_baseline_is_flagged_and_reset_only_while_not_dimming() {
+    let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
+    assert_eq!(ui.status().unwrap()["monitors"][0]["dimmed"], false);
+    assert!(
+        ui.reset_baseline().is_ok(),
+        "nothing flagged, nothing written"
+    );
+    if let Session::Demo(c, _) = &mut ui.session {
+        assert_eq!(c.driver.writes, 0);
+        c.monitors[0].original = Some(scale(&linear_ramp(), 50).unwrap());
+    }
+    assert_eq!(ui.status().unwrap()["monitors"][0]["dimmed"], true);
+    ui.live_control("master", 20, true, 0).unwrap();
+    assert!(ui.reset_baseline().is_err());
+    ui.restore().unwrap();
+    ui.reset_baseline().unwrap();
+    assert_eq!(ui.status().unwrap()["monitors"][0]["dimmed"], false);
+    if let Session::Demo(c, _) = &ui.session {
+        assert_eq!(c.driver.current["mock-1"], linear_ramp());
+    }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    controller::{Controller, Mock, Outcome},
+    controller::{Controller, Mock, Monitor, Outcome},
     watchdog::Real,
 };
 use serde_json::{json, Value};
@@ -35,7 +35,7 @@ impl Session {
             }
         };
         Ok(
-            json!({"mode":mode,"monitors":monitors.iter().map(|m|json!({"id":m.id,"name":m.name,"supported":m.original.is_some(),"error":m.error})).collect::<Vec<_>>(),"armed":armed,"restore_errors":errors,"preview_seconds":15,"visible_effect_verified":false}),
+            json!({"mode":mode,"monitors":monitors.iter().map(|m|json!({"id":m.id,"name":m.name,"supported":m.original.is_some(),"error":m.error,"dimmed":m.original.as_ref().is_some_and(crate::looks_dimmed)})).collect::<Vec<_>>(),"armed":armed,"restore_errors":errors,"preview_seconds":15,"visible_effect_verified":false}),
         )
     }
     pub fn preview(
@@ -85,6 +85,18 @@ impl Session {
         match self {
             Self::Real(c) => c.heartbeat(),
             Self::Demo(c, _) => c.heartbeat(),
+        }
+    }
+    pub fn monitors(&self) -> &[Monitor] {
+        match self {
+            Self::Real(c) => &c.monitors,
+            Self::Demo(c, _) => &c.monitors,
+        }
+    }
+    pub fn reset_baseline(&mut self, id: &str) -> Result<(), String> {
+        match self {
+            Self::Real(c) => c.reset_baseline(id),
+            Self::Demo(c, _) => c.reset_baseline(id),
         }
     }
     pub fn restore_target(&mut self, id: &str) -> Result<(), String> {

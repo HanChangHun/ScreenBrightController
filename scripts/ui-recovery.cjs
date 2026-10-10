@@ -47,6 +47,9 @@ function backend() {
       state.live_blocked = false; state.recovery = null; state.armed = []; state.outcomes = []; state.operation = 'idle';
       for (const control of Object.values(state.controls)) control.dim = 0;
       state.message = 'Saved original gamma restored.';
+    } else if (command === 'reset_baseline') {
+      for (const monitor of state.monitors) monitor.dimmed = false;
+      state.revision++;
     } else throw Error('Unexpected command: ' + command);
     listeners.forEach(fn => fn());
     return structuredClone(state);
@@ -54,7 +57,7 @@ function backend() {
   return api;
 }
 function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
-  const ids = ['monitors', 'restore', 'notice', 'notice-message', 'notice-details', 'notice-detail', 'recover', 'close-popup'];
+  const ids = ['monitors', 'restore', 'notice', 'notice-message', 'notice-details', 'notice-detail', 'recover', 'reset-baseline', 'close-popup'];
   const nodes = Object.fromEntries(ids.map(id => [id, new Element()]));
   const document = { body: { dataset: { surface: 'popup' } }, activeElement: null,
     getElementById: id => nodes[id], createElement: () => new Element(), addEventListener() {} };
@@ -125,6 +128,20 @@ function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
   eq(main.nodes['notice-message'].textContent, 'Restore failed. Keep the app open and try again.');
   ok(main.nodes['notice-detail'].textContent.includes('Display 1: restore readback mismatch'));
   api.state.restore_errors = []; api.state.revision++; await main.poll();
+  // A dimmed saved original is only reported; resetting it needs a trusted click.
+  const baselineApi = backend();
+  baselineApi.state.monitors[0].dimmed = true;
+  const baseline = surface(baselineApi), resets = () => baselineApi.calls.filter(call => call.command === 'reset_baseline').length;
+  await settle();
+  ok(baseline.nodes['notice-message'].textContent.startsWith('Display 1 started dimmed'));
+  eq(baseline.nodes['reset-baseline'].hidden, false);
+  eq(baseline.nodes.recover.hidden, true);
+  await fire(baseline.nodes['reset-baseline'], 'click', { isTrusted: false });
+  eq(resets(), 0);
+  await fire(baseline.nodes['reset-baseline'], 'click'); await settle();
+  eq(resets(), 1);
+  eq(baseline.nodes.notice.hidden, true);
+  eq(baseline.nodes['reset-baseline'].hidden, true);
   const store = new Map(), demoWindow = { addEventListener() {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/ui/demo.js'), 'utf8'), {
     window: demoWindow, location: { search: '?demo=1' }, URLSearchParams,

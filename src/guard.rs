@@ -69,6 +69,12 @@ impl<D: Driver> Guard<D> {
             }
         }
     }
+    pub fn reset(&mut self, id: &str) -> Result<(), String> {
+        if self.armed.contains_key(id) {
+            return Err("restore before resetting".into());
+        }
+        crate::controller::reset_baseline(&mut self.driver, &mut self.monitors, id)
+    }
     pub fn restore(&mut self, id: &str) -> Result<(), String> {
         if !self.monitors.iter().any(|m| m.id == id) {
             return Err("unknown display".into());

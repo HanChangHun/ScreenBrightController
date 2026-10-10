@@ -314,6 +314,21 @@ impl UiSession {
         self.outcomes = json!(outcomes);
         Ok(())
     }
+    /// User-initiated only: give every display with a dimmed saved original the linear ramp.
+    pub fn reset_baseline(&mut self) -> Result<(), String> {
+        let ids: Vec<String> = self
+            .session
+            .monitors()
+            .iter()
+            .filter(|m| m.original.as_ref().is_some_and(crate::looks_dimmed))
+            .map(|m| m.id.clone())
+            .collect();
+        self.revision += 1;
+        for id in ids {
+            self.session.reset_baseline(&id)?;
+        }
+        Ok(())
+    }
     pub fn restore(&mut self) -> Result<(), String> {
         self.generation += 1;
         self.revision += 1;
