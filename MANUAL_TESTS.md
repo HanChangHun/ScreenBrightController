@@ -1,4 +1,4 @@
-# Manual acceptance — v0.5.2
+# Manual acceptance — v0.6.0
 
 Not executed by development tools. Use only with deliberate user authorization. Restore and quit the older controller first; do not run two gamma controllers together. Turn off HDR / conflicting color tools. Start with a mild value and keep header ↺ / tray **Restore original** reachable.
 
