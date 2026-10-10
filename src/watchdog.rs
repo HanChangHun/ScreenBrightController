@@ -361,8 +361,73 @@ impl Driver for Real {
     fn read(&mut self, id: &str) -> Result<Ramp, String> {
         Native.read(id)
     }
-    fn restore(&mut self, id: &str, _original: &Ramp) -> Result<(), String> {
-        self.link.request(Request::Restore { id: id.into() })?;
-        Ok(())
+    fn restore(&mut self, id: &str, original: &Ramp) -> Result<(), String> {
+        match self.link.request(Request::Restore { id: id.into() }) {
+            Ok(_) => Ok(()),
+            // A dead watchdog cannot restore, but this process still owns the original.
+            // Never respawn it: a fresh snapshot could capture the dimmed ramp as original.
+            Err(_) if matches!(self.link.child.try_wait(), Ok(Some(_))) => {
+                Native.restore(id, original)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// A link to a stand-in child; replies are injected through the returned sender.
+    fn link(alive: bool) -> (Link, mpsc::Sender<Result<Response, String>>) {
+        let mut child = Command::new("cmd")
+            .args(["/c", if alive { "more" } else { "exit" }])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        if !alive {
+            child.wait().unwrap();
+        }
+        let input = child.stdin.take();
+        let (tx, output) = mpsc::channel();
+        let link = Link {
+            child,
+            input,
+            output,
+            monitors: vec![],
+        };
+        (link, tx)
+    }
+    fn reply(error: Option<&str>) -> Result<Response, String> {
+        Ok(Response {
+            ok: error.is_none(),
+            error: error.map(Into::into),
+            monitors: vec![],
+            armed: vec![],
+            restore_errors: vec![],
+            mock_values: None,
+        })
+    }
+    fn reply_later(tx: &mpsc::Sender<Result<Response, String>>, error: Option<&'static str>) {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = tx.send(reply(error));
+        });
+    }
+    #[test]
+    fn exited_watchdog_falls_back_to_the_owned_original() {
+        let (link, _tx) = link(false);
+        let mut real = Real { link };
+        // An unknown id is never written, so this exercises the fallback read-only.
+        let error = real.restore("missing", &vec![vec![0; 256]; 3]).unwrap_err();
+        assert!(error.contains("display disconnected"), "{error}");
+    }
+    #[test]
+    fn live_watchdog_rejection_is_not_bypassed() {
+        let (link, tx) = link(true);
+        let mut real = Real { link };
+        reply_later(&tx, Some("rejected"));
+        let error = real.restore("missing", &vec![vec![0; 256]; 3]).unwrap_err();
+        assert_eq!(error, "rejected");
     }
 }
