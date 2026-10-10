@@ -44,6 +44,8 @@ class PackagingTests(unittest.TestCase):
         # A gamma recovery watchdog must never be stopped by the installer.
         for forbidden in ("RmShutdown", "RmForceShutdown", "TerminateProcess", "taskkill", "_KillProcess"):
             self.assertNotIn(forbidden, source)
+        # Upgrades must keep the user's startup opt-in.
+        self.assertNotIn(r"CurrentVersion\Run", source)
 
     def test_only_a_hidden_tray_popup_with_local_window_permissions(self):
         self.assertEqual([w["label"] for w in CONFIG["app"]["windows"]], ["popup"])

@@ -28,6 +28,7 @@ Requires Windows x64. The installer needs no administrator rights and installs W
 - If controls pause after an error, use **Restore** before trying a lower value.
 - If a display's saved gamma is already far below normal at launch (for example, both the app and its watchdog stopped while dimmed), the popup warns and offers **Reset to default ramp**. It never resets on its own, because calibrated ramps are legitimately non-linear.
 - Updates are manual. Use **Restore and quit** before updating or uninstalling.
+- Updating keeps **Start with Windows**. Uninstalling does not remove it either, so turn it off in the popup settings before uninstalling.
 - The installer is unsigned and may trigger SmartScreen; see [installation notes](docs/USAGE.md#installation-and-updates).
 
 ## Build

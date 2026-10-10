@@ -47,7 +47,7 @@ The workspace packages are `screen-bright-controller` and `screen-bright-control
 6. Launch the installed app normally. Verify only the tray icon and recovery child start: the sole popup is hidden and no main window exists. Left-click the tray to open controls and inspect the popup, then hide it with −/Escape. A normal second instance must not create/show another window. Compare read-only native ramps before/after; do not move dimming controls. Windows startup remains an explicit user opt-in in the popup's gear settings.
 7. Perform the popup geometry checklist in `MANUAL_TESTS.md`: trusted header-only drag, every resize edge/corner, minimum/scrolling, retained session geometry across hide/reopen, mixed-DPI/work-area recovery, and unchanged read-only gamma/startup state. Browser memory gesture traces and pure geometry tests do not establish native WebView2/Win32 mouse behavior. Do not install or launch a new real controller over a running older version to perform this check.
 
-Uninstall cleanup only removes the app's `ScreenBrightController` Run value when it exactly matches this installed executable's quoted `--autostart` command, and preserves it during updates. Real startup toggles and actual login acceptance are separate user-authorized checks.
+The installer hooks never touch the per-user `ScreenBrightController` Run value, so manual upgrades keep the startup opt-in and uninstalling leaves it in place (users turn it off in the popup settings first). Uninstallers from 0.5.x still contain the old cleanup, so an interactive "uninstall before installing" upgrade from 0.5.x can drop the value once; say so in release notes. Real startup toggles and actual login acceptance are separate user-authorized checks.
 
 ## Publish
 

@@ -30,13 +30,6 @@
   ${EndIf}
 !macroend
 
-; The app intentionally uses a stable Run value name without spaces.
-; Preserve upgrades and registrations owned by a different/portable executable.
-!macro NSIS_HOOK_POSTUNINSTALL
-  ${If} $UpdateMode <> 1
-    ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "ScreenBrightController"
-    ${If} $0 == '$\"$INSTDIR\${MAINBINARYNAME}.exe$\" --autostart'
-      DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "ScreenBrightController"
-    ${EndIf}
-  ${EndIf}
-!macroend
+; No uninstall hook touches the per-user Run value: the Tauri template only marks
+; updater-driven upgrades, so a manual "uninstall before installing" upgrade would
+; otherwise drop the user's startup opt-in.
