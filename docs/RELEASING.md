@@ -17,13 +17,13 @@ node scripts/ui-live.cjs
 node scripts/ui-settings.cjs
 node scripts/ui-recovery.cjs
 node scripts/ui-geometry.cjs
-npm --prefix app run build
+RUSTFLAGS="--remap-path-prefix=$USERPROFILE=~" npm --prefix app run build
 python scripts/verify-release.py
 python scripts/verify-icon.py
 python scripts/verify-continuous.py
 ```
 
-This is the canonical check list. `cargo test` and the verify scripts read real gamma ramps but never write them.
+This is the canonical check list. `cargo test` and the verify scripts read real gamma ramps but never write them. The build remaps the profile directory so dependency source paths do not embed the build machine's user name (`profile.trim-paths` is not stable in Cargo 1.98); `verify-release.py` fails if any `:\Users\` path remains.
 
 The CLI is pinned to 2.12.1 in `app/package.json` and `app/package-lock.json`. Review its generated NSIS `CheckIfAppIsRunning` call sites when upgrading the CLI: `windows/installer-hooks.nsh` replaces that shared macro to **refuse** a running executable instead of closing processes. Restart Manager errors are fail-closed. Both the app and its watchdog use the same executable, so either must be stopped normally before installation/removal. Never force-kill a real gamma process to build, install or delete old artifacts.
 

@@ -11,6 +11,10 @@ if not app.is_file():
     parser.error(f'Executable not found: {app}; build with npm --prefix app run build first')
 evidence = options.evidence_dir.resolve()
 evidence.mkdir(parents=True, exist_ok=True)
+# Release builds remap the build profile directory (docs/RELEASING.md); no user path may ship.
+binary = app.read_bytes().lower()
+user_paths = [s.encode(e) for s in (':\\users\\', ':/users/') for e in ('ascii', 'utf-16-le')]
+assert not any(p in binary for p in user_paths), 'Build-machine user path embedded; rebuild with --remap-path-prefix'
 
 def run(exe, arg, output):
     result = subprocess.run([str(exe), arg], capture_output=True, timeout=15)
@@ -100,6 +104,7 @@ report = {
     'app_mock_watchdog_eof_restored':smoke['watchdog_disconnect_restored'],
     'app_mock_parent_death_with_open_pipe_restored':True,
     'native_display_writes':0,
+    'no_build_user_paths':True,
     'artifact':{'path':str(app),'bytes':app.stat().st_size,'sha256':hashlib.sha256(app.read_bytes()).hexdigest()},
 }
 (evidence / 'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
