@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Screen Bright Controller demo</title>
+<!-- Install the memory-only bridge, then render the shipped popup from ../ui unchanged. Serve app/ over HTTP. -->
+<script src="demo.js"></script>
+<script>
+fetch('../ui/index.html').then(r => r.text()).then(html => {
+  document.open();
+  document.write(html.replace('<head>', '<head><base href="../ui/">'));
+  document.close();
+});
+</script>

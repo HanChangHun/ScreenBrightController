@@ -37,9 +37,9 @@ class TrayOnlyTests(unittest.TestCase):
         self.assertNotIn('open-main', source)
         self.assertNotIn('!popup', source)
         self.assertFalse((ROOT / 'app/ui/popup.html').exists(), 'Keep only one popup HTML entry point')
-        harness = (ROOT / 'app/ui/harness.html').read_text(encoding='utf-8')
+        harness = (ROOT / 'app/demo/harness.html').read_text(encoding='utf-8')
         self.assertEqual(harness.count('<iframe'), 1)
-        self.assertIn('src="index.html?demo=1"', harness)
+        self.assertIn('src="popup.html?demo=1"', harness)
 
 
 if __name__ == '__main__':

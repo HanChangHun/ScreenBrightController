@@ -62,8 +62,8 @@ function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
   const document = { body: { dataset: { surface: 'popup' } }, activeElement: null,
     getElementById: id => nodes[id], createElement: () => new Element(), addEventListener() {} };
   let poll;
-  vm.runInNewContext(source, { document, window: { __TAURI__: { core: { invoke: api.invoke }, event: { listen: (name, fn) => { if (name === 'state-changed') api.listeners.push(fn); } } } },
-    ...timeouts, setInterval: fn => { poll = fn; }, console });
+  vm.runInNewContext(source, { document, window: { __TAURI__: { core: { invoke: api.invoke }, event: { listen: (name, fn) => { if (name === 'state-changed') { api.listeners.push(fn); poll = fn; } } } } },
+    ...timeouts, console });
   return { nodes, document, poll: () => poll(), find: (id, type) => walk(nodes.monitors).find(e => e.dataset.control === id && e.type === type) };
 }
 (async () => {
@@ -143,7 +143,7 @@ function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
   eq(baseline.nodes.notice.hidden, true);
   eq(baseline.nodes['reset-baseline'].hidden, true);
   const store = new Map(), demoWindow = { addEventListener() {} };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/ui/demo.js'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/demo/demo.js'), 'utf8'), {
     window: demoWindow, location: { search: '?demo=1' }, URLSearchParams,
     localStorage: { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) },
   });
@@ -263,7 +263,7 @@ function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
   eq(statusApi.calls.filter(call => call.command === 'live_control').map(call => call.args.dim), [27, 31]);
   const native = { core: { invoke() { throw Error('Native bridge must not be called by demo initialization'); } } };
   const nativeWindow = { __TAURI__: native };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/ui/demo.js'), 'utf8'), { window: nativeWindow, location: { search: '?demo=1' }, URLSearchParams });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/demo/demo.js'), 'utf8'), { window: nativeWindow, location: { search: '?demo=1' }, URLSearchParams });
   eq(nativeWindow.__TAURI__, native);
   console.log(`Recovery UI PASS: ${assertions} assertions`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

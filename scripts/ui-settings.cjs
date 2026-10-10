@@ -7,7 +7,7 @@ function fixture(){
  const calls=[];let reply={enabled:true,error:null},pending;
  const document={body:{dataset:{surface:'popup'}},getElementById:id=>nodes[id]||{addEventListener(){}},addEventListener(){}};
  // Remove only the existing unrelated dimming initialization; settings code is unchanged.
- const code=source.replace('refresh();setInterval(refresh,500);','');
+ const code=source.replace(/\nrefresh\(\);\s*$/,'');
  vm.runInNewContext(code,{document,window:{__TAURI__:{core:{invoke:async(c,a)=>{calls.push({c,a});if(pending)return pending;return reply;}}}},setTimeout,clearTimeout});
  return{nodes,calls,setReply:r=>reply=r,setPending:p=>pending=p};
 }
@@ -27,6 +27,6 @@ const settle=()=>new Promise(r=>setTimeout(r,0));
  const before=f.calls.length;f.nodes.autostart.events.change({isTrusted:false});await settle();eq(f.calls.length,before);
  f.setReply({enabled:null,error:'Get failed'});f.nodes['settings-toggle'].events.click({isTrusted:true});f.nodes['settings-toggle'].events.click({isTrusted:true});await settle();eq(f.nodes.autostart.disabled,true);eq(f.nodes['startup-message'].textContent,'Get failed');
  f.setPending(Promise.reject(Error('IPC get failed')));f.nodes['settings-toggle'].events.click({isTrusted:true});f.nodes['settings-toggle'].events.click({isTrusted:true});await settle();eq(f.nodes.autostart.disabled,true);eq(f.nodes.autostart.checked,false);eq(f.nodes['startup-message'].textContent.includes('Startup state unavailable'),true);
- const store=new Map();const demoWindow={addEventListener(){}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../app/ui/demo.js'),'utf8'),{window:demoWindow,location:{search:'?demo=1'},URLSearchParams,localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)}});eq((await demoWindow.__TAURI__.core.invoke('get_autostart')).enabled,false);eq((await demoWindow.__TAURI__.core.invoke('set_autostart',{enabled:true})).enabled,true);eq((await demoWindow.__TAURI__.core.invoke('status')).armed,[]);
+ const store=new Map();const demoWindow={addEventListener(){}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../app/demo/demo.js'),'utf8'),{window:demoWindow,location:{search:'?demo=1'},URLSearchParams,localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)}});eq((await demoWindow.__TAURI__.core.invoke('get_autostart')).enabled,false);eq((await demoWindow.__TAURI__.core.invoke('set_autostart',{enabled:true})).enabled,true);eq((await demoWindow.__TAURI__.core.invoke('status')).armed,[]);
  console.log(`Settings UI PASS: ${assertions} assertions`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

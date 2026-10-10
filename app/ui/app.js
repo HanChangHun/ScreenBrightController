@@ -2,7 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id),invoke=(c,a={})=>window.__TAURI__.core.invoke(c,a);
 const controls=new Map(),intents=new Map();
-let snapshot=null,flight=null,timer=null,restoring=false,locallyBlocked=false,statusUnavailable=false,localError='',serial=0,statusSerial=0,statusSuccess=0;
+let snapshot=null,flight=null,timer=null,restoring=false,locallyBlocked=false,statusUnavailable=false,localError='',statusSerial=0,statusSuccess=0;
 const label=id=>id==='master'?'Linked displays':`Display ${snapshot.monitors.findIndex(m=>m.id===id)+1}`;
 const readable=text=>{let value=String(text);for(const m of snapshot?.monitors||[])value=value.split(m.id).join(label(m.id));return value;};
 function error(e){localError=String(e);sync();}
@@ -44,7 +44,7 @@ function sync(){
  }
 }
 function schedule(){if(!timer&&!restoring&&!paused())timer=setTimeout(()=>{timer=null;drain();},80);}
-function intent(id,control){if(restoring||paused()||!snapshot){sync();return;}localError='';intents.set(id,{id,control,generation:snapshot.generation,serial:++serial});sync();schedule();}
+function intent(id,control){if(restoring||paused()||!snapshot){sync();return;}localError='';intents.set(id,{id,control,generation:snapshot.generation});sync();schedule();}
 async function drain(){
  if(flight||restoring||paused()||!intents.size)return;
  const item=intents.values().next().value;intents.delete(item.id);flight=item;
@@ -101,4 +101,5 @@ if($('autostart')){
  window.addEventListener?.('focus',loadStartup);
  loadStartup();
 }
-refresh();setInterval(refresh,500);
+// The backend emits state-changed after every change and each heartbeat.
+refresh();

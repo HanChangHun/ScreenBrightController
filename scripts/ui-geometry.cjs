@@ -50,7 +50,7 @@ const event = (extra = {}) => ({ isTrusted: true, button: 0, detail: 1,
   await Promise.resolve(); equal(f.calls.length, 9);
   const store = new Map();
   const demoWindow = { addEventListener() {} };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/ui/demo.js'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/demo/demo.js'), 'utf8'), {
     window: demoWindow, location: { search: '?demo=1' }, URLSearchParams,
     localStorage: { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) }
   });
@@ -62,7 +62,7 @@ const event = (extra = {}) => ({ isTrusted: true, button: 0, detail: 1,
     ['plugin:window|start_dragging', 'plugin:window|start_resize_dragging']);
   equal(JSON.stringify(await demoWindow.__TAURI__.core.invoke('status')), before);
   const nativeBridge = { native: true }, nativeWindow = { __TAURI__: nativeBridge };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/ui/demo.js'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/demo/demo.js'), 'utf8'), {
     window: nativeWindow, location: { search: '?demo=1' }, URLSearchParams
   });
   equal(nativeWindow.__TAURI__, nativeBridge);
