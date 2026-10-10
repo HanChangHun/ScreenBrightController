@@ -1,40 +1,22 @@
 //! Backend-owned ephemeral controls; live_control is the intentional user-gesture write boundary.
-use crate::{controller::Outcome, dimming_percent, session::Session};
+use crate::{
+    controller::{detached_only, Outcome},
+    dimming_percent,
+    session::Session,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
+/// Physical x, y, width, height.
 pub type PopupRect = (i32, i32, u32, u32);
-#[derive(Clone, Debug, PartialEq)]
-pub struct PopupArea {
-    pub work: PopupRect,
-    pub scale: f64,
-}
-/// Reuse actual native geometry; the window owns session-only move/resize memory.
-pub fn popup_reopen_bounds(areas: &[PopupArea], current: PopupRect) -> Option<(usize, PopupRect)> {
-    let (x, y, width, height) = current;
-    let (x, y) = (i64::from(x), i64::from(y));
-    let index = areas
-        .iter()
-        .enumerate()
-        .min_by_key(|(_, area)| {
-            let (left, top, w, h) = area.work;
-            let (left, top) = (i64::from(left), i64::from(top));
-            let (right, bottom) = (left + i64::from(w), top + i64::from(h));
-            let overlap_w = (right.min(x + i64::from(width)) - left.max(x)).max(0) as u64;
-            let overlap_h = (bottom.min(y + i64::from(height)) - top.max(y)).max(0) as u64;
-            let (cx, cy) = (2 * x + i64::from(width), 2 * y + i64::from(height));
-            let dx = (cx - cx.clamp(2 * left, 2 * right)).unsigned_abs() as u128;
-            let dy = (cy - cy.clamp(2 * top, 2 * bottom)).unsigned_abs() as u128;
-            (std::cmp::Reverse(overlap_w * overlap_h), dx * dx + dy * dy)
-        })?
-        .0;
-    let area = &areas[index];
-    let (left, top, work_w, work_h) = area.work;
-    let (min_w, min_h) = popup_min_size(area);
-    let width = width.max(min_w).min(work_w);
-    let height = height.max(min_h).min(work_h);
-    let x = x.clamp(i64::from(left), i64::from(left) + i64::from(work_w - width));
-    let y = y.clamp(i64::from(top), i64::from(top) + i64::from(work_h - height));
-    Some((index, (x as i32, y as i32, width, height)))
+/// Reopening keeps the user's native geometry while some work area shows the popup's top strip.
+pub fn popup_on_screen(work_areas: &[PopupRect], popup: PopupRect) -> bool {
+    let (x, y, width, _) = popup;
+    let (left, top) = (i64::from(x), i64::from(y));
+    let (right, bottom) = (left + i64::from(width), top + 24);
+    work_areas.iter().any(|&(ax, ay, aw, ah)| {
+        let (ax, ay) = (i64::from(ax), i64::from(ay));
+        left < ax + i64::from(aw) && right > ax && top < ay + i64::from(ah) && bottom > ay
+    })
 }
 /// Logical pixels to physical pixels; an invalid scale factor counts as 1.
 fn physical(logical: f64, scale: f64) -> u32 {
@@ -44,13 +26,6 @@ fn physical(logical: f64, scale: f64) -> u32 {
         1.0
     };
     (logical * scale).round() as u32
-}
-/// Minimum readable logical controls, bounded by the actual physical work area.
-pub fn popup_min_size(area: &PopupArea) -> (u32, u32) {
-    (
-        physical(430.0, area.scale).min(area.work.2),
-        physical(260.0, area.scale).min(area.work.3),
-    )
 }
 /// Coordinates are physical throughout; only the desired logical size/gap is DPI-scaled.
 pub fn popup_bounds(work: PopupRect, click: (f64, f64), scale: f64) -> PopupRect {
@@ -73,6 +48,8 @@ pub enum Recovery {
     Apply,
     Safety,
     Restore,
+    /// Only unplugged displays block restoration; the watchdog keeps them armed.
+    Detached,
 }
 #[derive(Serialize)]
 pub struct MonitorStatus {
@@ -94,6 +71,7 @@ pub struct Status {
     pub recovery: Option<Recovery>,
     pub outcomes: Vec<Outcome>,
     pub message: String,
+    pub notice: Option<String>,
 }
 pub struct UiSession {
     pub session: Session,
@@ -104,6 +82,8 @@ pub struct UiSession {
     recovery: Option<Recovery>,
     pub outcomes: Vec<Outcome>,
     pub message: String,
+    /// Non-blocking: a rejected update left the previous verified level in place.
+    notice: Option<String>,
 }
 impl UiSession {
     pub fn new(session: Session) -> Result<Self, String> {
@@ -132,11 +112,23 @@ impl UiSession {
             recovery: None,
             outcomes: vec![],
             message: "No changes applied.".into(),
+            notice: None,
         })
     }
     /// Authoritative recovery state; read-only and independent of request errors.
     pub fn needs_attention(&self) -> bool {
         self.live_blocked || self.recovery.is_some()
+    }
+    /// Quit may leave the remaining unplugged displays to the running watchdog.
+    pub fn detached(&self) -> bool {
+        self.recovery == Some(Recovery::Detached)
+    }
+    fn failure(&mut self, error: &str, otherwise: Recovery) -> Recovery {
+        if detached_only(error) && self.session.watchdog_running() {
+            Recovery::Detached
+        } else {
+            otherwise
+        }
     }
     pub fn status(&mut self) -> Result<Status, String> {
         Ok(Status {
@@ -160,6 +152,7 @@ impl UiSession {
             recovery: self.recovery,
             outcomes: self.outcomes.clone(),
             message: self.message.clone(),
+            notice: self.notice.clone(),
         })
     }
     /// Only intentional UI gestures use this command. Generation fences all pre-Restore intents.
@@ -174,23 +167,46 @@ impl UiSession {
         if generation != self.generation || self.live_blocked {
             return Err("Live request cancelled; Restore before retrying.".into());
         }
-        if !self.controls.contains_key(id) {
-            return Err("unknown control".into());
-        }
+        let previous = self.controls.get(id).cloned().ok_or("unknown control")?;
+        let before = self.controls.clone();
         self.controls.insert(id.into(), Control { dim, enabled });
         self.revision += 1;
-        let result = self.apply();
-        if let Err(ref e) = result {
-            self.live_blocked = true;
-            self.recovery = Some(Recovery::Apply);
-            self.generation += 1;
-            self.message = format!("Live update stopped: {e}. Restore before retrying.");
+        self.notice = None;
+        match self.apply() {
+            Ok(true) => Ok(()),
+            // Every refusing display still reads back its last verified ramp. Return the
+            // controls to that state and drop requests queued on the rejected value.
+            Ok(false) => {
+                let rejected = self.outcomes.clone();
+                self.controls = before;
+                self.generation += 1;
+                match self.apply() {
+                    Ok(true) => {
+                        self.outcomes = rejected;
+                        self.notice = Some(if previous.dim == dim {
+                            "Windows rejected this change and kept the previous setting.".into()
+                        } else {
+                            format!("Windows rejected {dim} and kept {}.", previous.dim)
+                        });
+                        Ok(())
+                    }
+                    Ok(false) => self.stop("returning to the previous level was rejected".into()),
+                    Err(e) => self.stop(e),
+                }
+            }
+            Err(e) => self.stop(e),
         }
-        result
+    }
+    fn stop(&mut self, e: String) -> Result<(), String> {
+        self.live_blocked = true;
+        self.recovery = Some(Recovery::Apply);
+        self.generation += 1;
+        self.message = format!("Live update stopped: {e}. Restore before retrying.");
+        Err(e)
     }
     pub fn heartbeat(&mut self) -> Result<(), String> {
         if let Err(e) = self.session.heartbeat() {
-            self.recovery = Some(Recovery::Safety);
+            self.recovery = Some(self.failure(&e, Recovery::Safety));
             self.message = format!("Safety stop: {e}. Restore before retrying.");
             self.live_blocked = true;
             self.generation += 1;
@@ -199,7 +215,8 @@ impl UiSession {
         }
         Ok(())
     }
-    fn apply(&mut self) -> Result<(), String> {
+    /// Ok(false): a display refused the new ramp and still reads back its last verified one.
+    fn apply(&mut self) -> Result<bool, String> {
         let master = self.controls["master"].clone();
         let mut targets = vec![];
         for monitor in self.session.monitors() {
@@ -226,16 +243,21 @@ impl UiSession {
                 continue;
             }
             let rows = self.session.continuous(vec![id], percent)?;
-            let failed = rows
+            let failed: Vec<bool> = rows
                 .iter()
-                .any(|r| !r.api_success || r.readback_matches != Some(true));
+                .filter(|r| !r.api_success || r.readback_matches != Some(true))
+                .map(|r| r.kept_previous)
+                .collect();
             self.outcomes.extend(rows);
-            if failed {
+            if failed.iter().any(|kept| !kept) {
                 return Err("API rejected, readback failed or driver ignored dimming; attempted targets remain watchdog protected".into());
+            }
+            if !failed.is_empty() {
+                return Ok(false);
             }
         }
         self.message="Continuous operation applied. Closing hides to tray; Restore or Quit returns saved originals. Native lease protection active.".into();
-        Ok(())
+        Ok(true)
     }
     /// User-initiated only: give every display with a dimmed saved original the linear ramp.
     pub fn reset_baseline(&mut self) -> Result<(), String> {
@@ -256,6 +278,7 @@ impl UiSession {
         self.generation += 1;
         self.revision += 1;
         self.live_blocked = true;
+        self.notice = None;
         match self.session.restore() {
             Ok(()) => {
                 self.live_blocked = false;
@@ -268,8 +291,13 @@ impl UiSession {
                 Ok(())
             }
             Err(e) => {
-                self.recovery = Some(Recovery::Restore);
-                self.message = format!("Restore failed: {e}. Keep the app open and retry.");
+                let recovery = self.failure(&e, Recovery::Restore);
+                self.recovery = Some(recovery);
+                self.message = if recovery == Recovery::Detached {
+                    format!("Restore waits for an unplugged display: {e}. The watchdog restores it when it returns.")
+                } else {
+                    format!("Restore failed: {e}. Keep the app open and retry.")
+                };
                 Err(e)
             }
         }

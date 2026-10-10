@@ -55,17 +55,17 @@ fn live_links_independent_exclusion_zero_and_readonly_status() {
     assert!(armed(&ui).is_empty());
 }
 #[test]
-fn rejected_live_blocks_retry_preserves_protection_and_restore_failure_fences() {
+fn unverified_live_blocks_retry_preserves_protection_and_restore_failure_fences() {
     let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
     if let Session::Demo(c) = &mut ui.session {
-        c.driver.ignored_set = true;
+        // The API reports failure although the ramp changed: the state is not verified.
+        c.driver.fail_set = true;
     }
     assert!(ui.live_control("master", 80, true, 0).is_err());
     assert!(!armed(&ui).is_empty());
-    assert_eq!(
-        ui.status().unwrap().outcomes[0].readback_matches,
-        Some(false)
-    );
+    let status = ui.status().unwrap();
+    assert!(!status.outcomes[0].api_success);
+    assert!(!status.outcomes[0].kept_previous);
     assert!(ui.live_control("master", 81, true, 1).is_err());
     if let Session::Demo(c) = &mut ui.session {
         c.driver.fail_restore = true;
@@ -80,7 +80,8 @@ fn ignored_live_update_keeps_last_verified_ramp_without_fighting() {
     if let Session::Demo(c) = &mut ui.session {
         c.driver.ignored_set = true;
     }
-    assert!(ui.live_control("master", 80, true, 0).is_err());
+    ui.live_control("master", 80, true, 0).unwrap();
+    assert_eq!(ui.status().unwrap().controls["master"].dim, 40);
     ui.heartbeat().unwrap();
     if let Session::Demo(c) = &ui.session {
         assert_eq!(c.driver.current["mock-1"][0][0], 24000);
@@ -99,14 +100,16 @@ fn boundary_requests_report_ignored_and_rejected_ramps_honestly() {
                 c.driver.ignored_set = true;
                 c.driver.fail_set = rejected;
             }
-            assert!(
-                ui.live_control("master", dim, true, 0).is_err(),
-                "dim {dim}"
-            );
+            ui.live_control("master", dim, true, 0).unwrap();
             let status = ui.status().unwrap();
             assert_eq!(status.outcomes[0].api_success, !rejected);
             assert_eq!(status.outcomes[0].readback_matches, Some(false));
-            assert!(status.message.contains("stopped"));
+            assert!(status.outcomes[0].kept_previous);
+            assert_eq!(
+                status.notice.as_deref(),
+                Some(format!("Windows rejected {dim} and kept 35.").as_str())
+            );
+            assert!(!status.live_blocked && status.recovery.is_none());
             ui.heartbeat().unwrap();
             if let Session::Demo(c) = &ui.session {
                 assert_eq!(c.driver.current["mock-1"][0][0], 26000);

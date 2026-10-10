@@ -1,43 +1,20 @@
-use crate::controller::{monitor, Driver, Monitor};
+use crate::controller::{monitor, Driver, Monitor, DISCONNECTED};
 use crate::Ramp;
-use std::{ffi::c_void, ptr};
-#[repr(C)]
-struct DisplayDevice {
-    cb: u32,
-    name: [u16; 32],
-    description: [u16; 128],
-    flags: u32,
-    id: [u16; 128],
-    key: [u16; 128],
-}
-#[link(name = "user32")]
-extern "system" {
-    fn EnumDisplayDevicesW(
-        device: *const u16,
-        index: u32,
-        out: *mut DisplayDevice,
-        flags: u32,
-    ) -> i32;
-}
-#[link(name = "gdi32")]
-extern "system" {
-    fn CreateDCW(
-        driver: *const u16,
-        device: *const u16,
-        output: *const u16,
-        init: *const c_void,
-    ) -> *mut c_void;
-    fn DeleteDC(dc: *mut c_void) -> i32;
-    fn GetDeviceGammaRamp(dc: *mut c_void, ramp: *mut c_void) -> i32;
-    fn SetDeviceGammaRamp(dc: *mut c_void, ramp: *const c_void) -> i32;
-}
+use std::ptr;
+use windows_sys::Win32::{
+    Graphics::Gdi::{
+        CreateDCW, DeleteDC, EnumDisplayDevicesW, DISPLAY_DEVICEW,
+        DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_MIRRORING_DRIVER, HDC,
+    },
+    UI::ColorSystem::{GetDeviceGammaRamp, SetDeviceGammaRamp},
+};
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 fn decode(s: &[u16]) -> String {
     String::from_utf16_lossy(&s[..s.iter().position(|v| *v == 0).unwrap_or(s.len())])
 }
-struct Dc(*mut c_void);
+struct Dc(HDC);
 impl Drop for Dc {
     fn drop(&mut self) {
         unsafe {
@@ -66,19 +43,23 @@ impl Driver for Native {
     fn snapshot(&mut self) -> Result<Vec<Monitor>, String> {
         let mut out = vec![];
         for index in 0..128 {
-            let mut d: DisplayDevice = unsafe { std::mem::zeroed() };
-            d.cb = std::mem::size_of::<DisplayDevice>() as u32;
+            let mut d = DISPLAY_DEVICEW {
+                cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+                ..Default::default()
+            };
             if unsafe { EnumDisplayDevicesW(ptr::null(), index, &mut d, 0) } == 0 {
                 break;
             }
-            if d.flags & 1 == 0 || d.flags & 8 != 0 {
+            if d.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP == 0
+                || d.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER != 0
+            {
                 continue;
             }
-            let id = decode(&d.name);
+            let id = decode(&d.DeviceName);
             let read = self.read(&id);
             out.push(Monitor {
                 id,
-                name: decode(&d.description),
+                name: decode(&d.DeviceString),
                 original: read.as_ref().ok().cloned(),
                 error: read.err(),
             });
@@ -112,7 +93,7 @@ impl Driver for Native {
         // Skip disconnected IDs. Windows may recycle display IDs after hotplug;
         // hotplug/replacement while dimmed is unsupported (see README).
         if monitor(&self.snapshot()?, id).is_none() {
-            return Err("display disconnected; original retained for retry".into());
+            return Err(DISCONNECTED.into());
         }
         if !self.set(id, original)? {
             return Err("restore API returned false".into());

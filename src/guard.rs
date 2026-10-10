@@ -1,4 +1,4 @@
-use crate::controller::{monitor, Driver, Monitor};
+use crate::controller::{monitor, Driver, Monitor, DISCONNECTED};
 use std::collections::BTreeMap;
 pub struct Guard<D: Driver> {
     pub driver: D,
@@ -50,7 +50,10 @@ impl<D: Driver> Guard<D> {
         let ids = self
             .armed
             .iter()
-            .filter(|(_, deadline)| !parent_alive || **deadline <= now)
+            // Parent death restores at once; a failed restore retries on its own schedule.
+            .filter(|(id, deadline)| {
+                **deadline <= now || (!parent_alive && !self.errors.contains_key(*id))
+            })
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         for id in ids {
@@ -61,6 +64,14 @@ impl<D: Driver> Guard<D> {
                 self.errors.insert(id, e);
             }
         }
+    }
+    /// Every remaining target failed only because its display is unplugged.
+    pub fn waiting_for_display(&self) -> bool {
+        !self.armed.is_empty()
+            && self
+                .armed
+                .keys()
+                .all(|id| self.errors.get(id).is_some_and(|e| e == DISCONNECTED))
     }
     pub fn reset(&mut self, id: &str) -> Result<(), String> {
         if self.armed.contains_key(id) {

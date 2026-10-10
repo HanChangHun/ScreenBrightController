@@ -20,16 +20,17 @@ function accept(next){
 }
 function renderNotice(){
  const needsRestore=paused();
- const recoveryMessage=snapshot?.recovery==='restore'||snapshot?.restore_errors?.length?'Restore failed. Keep the app open and try again.':snapshot?.recovery==='safety'?'Display state changed. Restore to continue.':'Dimming paused. Requested values are unconfirmed. Restore, then try a lower amount.';
+ const recoveryMessage=snapshot?.recovery==='detached'?'A dimmed display is unplugged. It is restored when it returns. To quit now, choose Quit anyway in the tray menu.':snapshot?.recovery==='restore'||snapshot?.restore_errors?.length?'Restore failed. Keep the app open and try again.':snapshot?.recovery==='safety'?'Display state changed. Restore to continue.':'Dimming paused. Requested values are unconfirmed. Restore, then try a lower amount.';
  const dimmed=(snapshot?.monitors||[]).filter(m=>m.dimmed).map(m=>label(m.id));
  const baseline=dimmed.length?`${dimmed.join(', ')} started dimmed: the saved gamma is far below normal, probably left by an earlier session that could not restore.`:'';
- const message=statusUnavailable?'Display status unavailable. Restore is still available.':needsRestore?recoveryMessage:localError||baseline;
+ const rejected=!needsRestore&&!localError&&snapshot?.notice||'';
+ const message=statusUnavailable?'Display status unavailable. Restore is still available.':needsRestore?recoveryMessage:localError||rejected||baseline;
  const evidence=(snapshot?.outcomes||[]).map(row=>`${label(row.id)} — API: ${row.api_success?'accepted':'rejected'}; readback: ${row.readback_matches===true?'matched':row.readback_matches===false?'not matched':'unavailable'}${row.readback_error?` (${readable(row.readback_error)})`:''}`);
- const detail=needsRestore&&!statusUnavailable?[readable(snapshot?.message||localError),...evidence,...(snapshot?.restore_errors||[]).map(readable)].filter(Boolean).join('\n'):localError;
+ const detail=needsRestore&&!statusUnavailable?[readable(snapshot?.message||localError),...evidence,...(snapshot?.restore_errors||[]).map(readable)].filter(Boolean).join('\n'):rejected?evidence.join('\n'):localError;
  if($('notice-message').textContent!==message)$('notice-message').textContent=message;
  $('notice-detail').textContent=detail;$('notice-details').hidden=!detail;
  $('notice').hidden=!message;
- $('reset-baseline').hidden=needsRestore||Boolean(localError)||!baseline;$('reset-baseline').disabled=restoring;
+ $('reset-baseline').hidden=!baseline||message!==baseline;$('reset-baseline').disabled=restoring;
  $('recover').hidden=!needsRestore;$('recover').disabled=restoring;$('recover').textContent=restoring?'Restoring…':'Restore';
 }
 function sync(){

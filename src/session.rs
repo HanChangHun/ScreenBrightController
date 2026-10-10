@@ -42,6 +42,13 @@ impl Session {
             Self::Demo(c) => c.heartbeat(),
         }
     }
+    /// Unplugged displays can be left to the watchdog only while it runs.
+    pub fn watchdog_running(&mut self) -> bool {
+        match self {
+            Self::Real(c) => matches!(c.driver.link.child.try_wait(), Ok(None)),
+            Self::Demo(_) => true,
+        }
+    }
     pub fn monitors(&self) -> &[Monitor] {
         match self {
             Self::Real(c) => &c.monitors,

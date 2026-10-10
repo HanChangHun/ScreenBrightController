@@ -1,6 +1,37 @@
 use screen_bright_controller::{
-    controller::Mock, guard::Guard, linear_ramp, scale, watchdog::Request,
+    controller::{Driver, Mock, DISCONNECTED},
+    guard::Guard,
+    linear_ramp, scale,
+    watchdog::Request,
 };
+#[test]
+fn unplugged_display_stays_armed_past_the_retry_window_and_restores_on_return() {
+    let mut g = Guard::new(Mock::default()).unwrap();
+    g.arm_continuous("mock-1", 10, 0).unwrap();
+    g.driver.set("mock-1", &vec![vec![100; 256]; 3]).unwrap();
+    g.driver.detached = vec!["mock-1".into()];
+    g.tick(1, false);
+    assert_eq!(g.errors["mock-1"], DISCONNECTED);
+    assert!(g.waiting_for_display());
+    g.tick(90_000, false);
+    assert!(
+        g.waiting_for_display(),
+        "keeps waiting instead of giving up"
+    );
+    g.driver.detached.clear();
+    g.tick(91_000, false);
+    assert!(g.armed.is_empty() && !g.waiting_for_display());
+    assert_eq!(g.driver.current["mock-1"][0][0], 40000);
+    // Other failures still end the wait.
+    let mut g = Guard::new(Mock {
+        fail_restore: true,
+        ..Default::default()
+    })
+    .unwrap();
+    g.arm_continuous("mock-1", 10, 0).unwrap();
+    g.tick(1, false);
+    assert!(!g.armed.is_empty() && !g.waiting_for_display());
+}
 #[test]
 fn watchdog_protocol_never_accepts_external_ramp_or_snapshot_file() {
     for payload in [

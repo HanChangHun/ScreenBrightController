@@ -3,19 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const source = fs.readFileSync(path.join(__dirname, '../app/ui/app.js'), 'utf8');
+const { walk, surface: fakeSurface } = require('./fake-dom.cjs');
 let assertions = 0;
 const eq = (actual, expected) => { assert.deepEqual(actual, expected); assertions++; };
 const ok = value => { assert.ok(value); assertions++; };
 const settle = () => new Promise(resolve => setTimeout(resolve, 150));
-class Element {
-  constructor() { this.children = []; this.events = {}; this.dataset = {}; this.attributes = {}; this.value = '0'; this.textContent = ''; this.hidden = false; this.disabled = false; }
-  addEventListener(name, fn) { this.events[name] = fn; }
-  setAttribute(name, value) { this.attributes[name] = value; }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; }
-}
-const walk = element => [element, ...element.children.flatMap(walk)];
 const fire = (element, name, extra = {}) => element.events[name]({ isTrusted: true, preventDefault() {}, ...extra });
 function backend() {
   const state = { mode: 'demo', operation: 'continuous', generation: 0, revision: 1, live_blocked: false, recovery: null,
@@ -31,7 +23,11 @@ function backend() {
       if (api.liveDelay) await api.liveDelay;
       if (args.generation !== state.generation || state.live_blocked) throw Error('Live request cancelled; Restore before retrying.');
       state.controls[args.id] = { dim: args.dim, enabled: args.enabled }; state.revision++;
-      if (api.failLive) {
+      if (api.rejectLive) {
+        state.controls[args.id] = api.rejectLive.previous; state.generation++;
+        state.outcomes = [{ id: 'raw-1', api_success: false, readback_matches: false, readback_error: null, kept_previous: true }];
+        state.notice = `Windows rejected ${args.dim} and kept ${api.rejectLive.previous.dim}.`;
+      } else if (api.failLive) {
         state.live_blocked = true; state.recovery = 'apply'; state.generation++;
         state.outcomes = [{ id: 'raw-1', api_success: true, readback_matches: false, readback_error: null }];
         state.message = 'Live update stopped: driver ignored dimming. Restore before retrying.';
@@ -44,7 +40,7 @@ function backend() {
         state.live_blocked = true; state.recovery = 'restore'; state.message = 'Restore failed: mock failure. Keep the app open and retry.';
         listeners.forEach(fn => fn()); throw Error('mock restore failure');
       }
-      state.live_blocked = false; state.recovery = null; state.armed = []; state.outcomes = []; state.operation = 'idle';
+      state.live_blocked = false; state.recovery = null; state.armed = []; state.outcomes = []; state.operation = 'idle'; state.notice = null;
       for (const control of Object.values(state.controls)) control.dim = 0;
       state.message = 'Saved original gamma restored.';
     } else if (command === 'reset_baseline') {
@@ -56,16 +52,7 @@ function backend() {
   };
   return api;
 }
-function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
-  const ids = ['monitors', 'restore', 'notice', 'notice-message', 'notice-details', 'notice-detail', 'recover', 'reset-baseline', 'close-popup'];
-  const nodes = Object.fromEntries(ids.map(id => [id, new Element()]));
-  const document = { body: { dataset: { surface: 'popup' } }, activeElement: null,
-    getElementById: id => nodes[id], createElement: () => new Element(), addEventListener() {} };
-  let poll;
-  vm.runInNewContext(source, { document, window: { __TAURI__: { core: { invoke: api.invoke }, event: { listen: (name, fn) => { if (name === 'state-changed') { api.listeners.push(fn); poll = fn; } } } } },
-    ...timeouts, console });
-  return { nodes, document, poll: () => poll(), find: (id, type) => walk(nodes.monitors).find(e => e.dataset.control === id && e.type === type) };
-}
+const surface = (api, popup = false, timeouts) => fakeSurface({ invoke: api.invoke, listeners: api.listeners, timeouts });
 (async () => {
   const api = backend(), main = surface(api), popup = surface(api, true);
   await settle();
@@ -261,6 +248,29 @@ function surface(api, popup = false, timeouts = { setTimeout, clearTimeout }) {
   eq(statusMain.nodes.recover.hidden, false);
   await runTimers();
   eq(statusApi.calls.filter(call => call.command === 'live_control').map(call => call.args.dim), [27, 31]);
+  // A rejection that left the previous level verified is a notice, not a lock.
+  const rejectApi = backend(), reject = surface(rejectApi);
+  rejectApi.failLive = false; rejectApi.rejectLive = { previous: { dim: 35, enabled: true } };
+  await settle();
+  const rejectSlider = reject.find('master', 'range');
+  rejectSlider.value = '52'; fire(rejectSlider, 'input'); await settle(); await settle();
+  eq(reject.nodes['notice-message'].textContent, 'Windows rejected 52 and kept 35.');
+  ok(reject.nodes['notice-detail'].textContent.includes('API: rejected; readback: not matched'));
+  eq(reject.nodes.recover.hidden, true);
+  eq(rejectSlider.disabled, false);
+  eq(rejectSlider.value, '35');
+  eq(reject.find('master', 'number').value, '35');
+  rejectApi.rejectLive = null;
+  rejectSlider.value = '40'; fire(rejectSlider, 'input'); await settle(); await settle();
+  eq(rejectApi.calls.filter(call => call.command === 'live_control').map(call => [call.args.dim, call.args.generation]), [[52, 0], [40, 1]]);
+  eq(rejectApi.state.controls.master.dim, 40);
+  // Only unplugged displays block Restore: point at Quit anyway, keep Restore available.
+  Object.assign(rejectApi.state, { live_blocked: true, recovery: 'detached', notice: null, generation: rejectApi.state.generation + 1, revision: rejectApi.state.revision + 1,
+    restore_errors: ['raw-2: display disconnected, original retained for retry'] });
+  await reject.poll();
+  ok(reject.nodes['notice-message'].textContent.includes('Quit anyway'));
+  eq(reject.nodes.recover.hidden, false);
+  eq(rejectSlider.disabled, true);
   const native = { core: { invoke() { throw Error('Native bridge must not be called by demo initialization'); } } };
   const nativeWindow = { __TAURI__: native };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/demo/demo.js'), 'utf8'), { window: nativeWindow, location: { search: '?demo=1' }, URLSearchParams });

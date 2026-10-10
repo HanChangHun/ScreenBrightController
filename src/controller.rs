@@ -22,6 +22,12 @@ pub trait Driver {
         self.restore(id, linear)
     }
 }
+/// Restore error for a display that is not attached; its original stays armed for retry.
+pub const DISCONNECTED: &str = "display disconnected, original retained for retry";
+/// True when every part of a restore error (`id: error; ...`) is a disconnected display.
+pub fn detached_only(error: &str) -> bool {
+    !error.is_empty() && error.split("; ").all(|part| part.ends_with(DISCONNECTED))
+}
 pub fn monitor<'a>(monitors: &'a [Monitor], id: &str) -> Option<&'a Monitor> {
     monitors.iter().find(|m| m.id == id)
 }
@@ -49,6 +55,8 @@ pub struct Outcome {
     pub api_success: bool,
     pub readback_matches: Option<bool>,
     pub readback_error: Option<String>,
+    /// Readback still equals the last verified ramp: the write was rejected or ignored.
+    pub kept_previous: bool,
 }
 pub struct Controller<D: Driver> {
     pub driver: D,
@@ -100,7 +108,8 @@ impl<D: Driver> Controller<D> {
             self.expected.insert(id.clone(), ramp.clone());
             let api_success = self.driver.set(id, &ramp)?;
             let readback = self.driver.read(id);
-            if readback.as_ref() == Ok(&previous) && previous != ramp {
+            let kept_previous = readback.as_ref() == Ok(&previous) && previous != ramp;
+            if kept_previous {
                 // An ignored update left the verified ramp intact: renew it without more SETs.
                 self.expected.insert(id.clone(), previous);
             }
@@ -109,6 +118,7 @@ impl<D: Driver> Controller<D> {
                 api_success,
                 readback_matches: readback.as_ref().ok().map(|r| r == &ramp),
                 readback_error: readback.err(),
+                kept_previous,
             });
         }
         Ok(out)
@@ -202,6 +212,10 @@ pub struct Mock {
     pub fail_restore: bool,
     pub fail_set: bool,
     pub ignored_set: bool,
+    /// Displays whose SET is ignored, like `ignored_set` for one display.
+    pub ignored_ids: Vec<String>,
+    /// Displays that behave as unplugged: reads and restores fail.
+    pub detached: Vec<String>,
     pub current: BTreeMap<String, Ramp>,
 }
 impl Driver for Mock {
@@ -228,18 +242,24 @@ impl Driver for Mock {
     }
     fn set(&mut self, id: &str, ramp: &Ramp) -> Result<bool, String> {
         self.writes += 1;
-        if !self.ignored_set {
+        if !self.ignored_set && !self.ignored_ids.iter().any(|i| i == id) {
             self.current.insert(id.into(), ramp.clone());
         }
         Ok(!self.fail_set)
     }
     fn read(&mut self, id: &str) -> Result<Ramp, String> {
+        if self.detached.iter().any(|d| d == id) {
+            return Err("display unavailable".into());
+        }
         self.current
             .get(id)
             .cloned()
             .ok_or("unknown display".into())
     }
     fn restore(&mut self, id: &str, original: &Ramp) -> Result<(), String> {
+        if self.detached.iter().any(|d| d == id) {
+            return Err(DISCONNECTED.into());
+        }
         if self.fail_restore {
             return Err("mock restore failure".into());
         }

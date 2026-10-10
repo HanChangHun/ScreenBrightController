@@ -2867,6 +2867,7 @@ version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
  "winreg",
 ]
 

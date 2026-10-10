@@ -19,6 +19,7 @@
         "visible": false,
         "decorations": false,
         "resizable": true,
+        "maximizable": false,
         "minWidth": 430,
         "minHeight": 260,
         "alwaysOnTop": true,

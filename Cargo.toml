@@ -9,6 +9,7 @@ serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_ColorSystem"] }
 
 [workspace]
 members = ["app/src-tauri"]

@@ -1,5 +1,16 @@
 use screen_bright_controller::controller::*;
 #[test]
+fn only_unplugged_display_failures_count_as_detached() {
+    assert!(detached_only(DISCONNECTED));
+    assert!(detached_only(&format!(
+        "a: {DISCONNECTED}; b: {DISCONNECTED}"
+    )));
+    assert!(!detached_only(&format!(
+        "a: {DISCONNECTED}; b: mock restore failure"
+    )));
+    assert!(!detached_only(""));
+}
+#[test]
 fn arms_before_write_and_reports_readback() {
     let mut c = Controller::new(Mock::default()).unwrap();
     let result = c.apply_continuous(&["mock-1".into()], 75).unwrap();

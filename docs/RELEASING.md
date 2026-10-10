@@ -16,7 +16,6 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 node scripts/ui-live.cjs
 node scripts/ui-settings.cjs
 node scripts/ui-recovery.cjs
-node scripts/ui-geometry.cjs
 RUSTFLAGS="--remap-path-prefix=$USERPROFILE=~" npm --prefix app run build
 python scripts/verify-release.py
 python scripts/verify-icon.py

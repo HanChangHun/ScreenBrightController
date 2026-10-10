@@ -13,6 +13,10 @@ use std::{
     sync::mpsc::{self, Receiver},
     time::{Duration, Instant},
 };
+use windows_sys::Win32::{
+    Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT},
+    System::Threading::{OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE},
+};
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", deny_unknown_fields)]
 pub enum Request {
@@ -22,7 +26,6 @@ pub enum Request {
     Restore { id: String },
     Reset { id: String },
     Status,
-    Quit,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Response {
@@ -33,16 +36,10 @@ pub struct Response {
     pub restore_errors: Vec<String>,
     pub mock_values: Option<BTreeMap<String, u16>>,
 }
-#[link(name = "kernel32")]
-extern "system" {
-    fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
-    fn WaitForSingleObject(handle: *mut std::ffi::c_void, ms: u32) -> u32;
-    fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
-}
-struct Parent(*mut std::ffi::c_void);
+struct Parent(HANDLE);
 impl Parent {
     fn open(pid: u32) -> Result<Self, String> {
-        let h = unsafe { OpenProcess(0x00100000, 0, pid) };
+        let h = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
         if h.is_null() {
             Err("cannot watch parent process".into())
         } else {
@@ -50,7 +47,7 @@ impl Parent {
         }
     }
     fn alive(&self) -> bool {
-        (unsafe { WaitForSingleObject(self.0, 0) }) == 258
+        (unsafe { WaitForSingleObject(self.0, 0) }) == WAIT_TIMEOUT
     }
 }
 impl Drop for Parent {
@@ -142,21 +139,21 @@ fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), Strin
     let mut g = Guard::new(driver)?;
     respond(&response(&g, None, true))?;
     let clock = Instant::now();
-    let mut quitting = false;
     let mut disconnected = false;
     let mut death_at = None;
     loop {
         let now = clock.elapsed().as_millis() as u64;
         let alive = parent.alive() && !disconnected;
-        if !alive || quitting {
+        if !alive {
             death_at.get_or_insert(now);
         }
-        g.tick(now, alive && !quitting);
-        if (!alive || quitting) && g.armed.is_empty() {
+        g.tick(now, alive);
+        if !alive && g.armed.is_empty() {
             let _ = respond(&response(&g, None, false));
             return Ok(());
         }
-        if death_at.is_some_and(|t| now - t > 60000) {
+        // An unplugged display keeps its original until it returns; other failures stop after 60s.
+        if death_at.is_some_and(|t| now - t > 60000) && !g.waiting_for_display() {
             let _ = respond(&response(
                 &g,
                 Some("restoration failed after 60s retries".into()),
@@ -171,7 +168,7 @@ fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), Strin
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(line) => {
                 let result = match serde_json::from_str::<Request>(&line) {
-                    Ok(Request::Continuous { id, lease }) if !quitting => {
+                    Ok(Request::Continuous { id, lease }) => {
                         let result =
                             g.arm_continuous(&id, lease, clock.elapsed().as_millis() as u64);
                         if result.is_ok() {
@@ -179,17 +176,13 @@ fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), Strin
                         }
                         result
                     }
-                    Ok(Request::Renew { id, lease }) if !quitting => {
+                    Ok(Request::Renew { id, lease }) => {
                         g.renew(&id, lease, clock.elapsed().as_millis() as u64)
                     }
                     Ok(Request::Restore { id }) => g.restore(&id),
-                    Ok(Request::Reset { id }) if !quitting => g.reset(&id),
+                    Ok(Request::Reset { id }) => g.reset(&id),
                     Ok(Request::Status) => Ok(()),
-                    Ok(Request::Quit) => {
-                        quitting = true;
-                        Ok(())
-                    }
-                    Ok(_) => Err("invalid state or command".into()),
+                    Ok(Request::Hello) => Err("invalid state or command".into()),
                     Err(e) => Err(format!("invalid protocol: {e}")),
                 };
                 // Arm is acknowledged only after the immutable original and deadline exist.
@@ -224,7 +217,7 @@ impl Link {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .creation_flags(0x08000000)
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
         let input = child.stdin.take();

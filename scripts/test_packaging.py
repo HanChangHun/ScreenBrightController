@@ -61,7 +61,7 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("remote", capability)
         self.assertEqual(set(capability["permissions"]), {
             "core:event:allow-listen", "core:event:allow-unlisten",
-            "core:window:allow-start-dragging", "core:window:allow-start-resize-dragging",
+            "core:window:allow-start-dragging",
         })
 
     def test_packaging_toolchain_is_pinned_and_uses_cargo_lock(self):
