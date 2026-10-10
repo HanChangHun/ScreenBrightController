@@ -25,7 +25,7 @@ Requires Windows x64. The installer needs no administrator rights and installs W
 - This adjusts GPU gamma, not monitor backlight brightness.
 - Driver restrictions and HDR/ICC/Night Light can affect results; the full 0–90 range is not guaranteed to work on every system.
 - Known limits: a hardware cursor may stay bright, drivers may apply changes late, and hotplug, recycled display IDs or GPU/OS resets while dimmed are unsupported. An accepted API call or matching readback does not prove the visible effect, and recovery is best effort if native calls hang or both the app and its watchdog stop.
-- If controls pause after an error, use **Restore** before trying a lower value.
+- If Windows rejects a dimming level, the previous level stays. If controls pause after another error, use **Restore** before trying a lower value.
 - If a display's saved gamma is already far below normal at launch (for example, both the app and its watchdog stopped while dimmed), the popup warns and offers **Reset to default ramp**. It never resets on its own, because calibrated ramps are legitimately non-linear.
 - Updates are manual. Use **Restore and quit** before updating or uninstalling.
 - Updating keeps **Start with Windows**. Uninstalling does not remove it either, so turn it off in the popup settings before uninstalling.

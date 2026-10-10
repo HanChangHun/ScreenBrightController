@@ -1,4 +1,4 @@
-# Manual acceptance — v0.6.0
+# Manual acceptance — v0.6.1
 
 Not executed by development tools. Use only with deliberate user authorization. Restore and quit the older controller first; do not run two gamma controllers together. Turn off HDR / conflicting color tools. Start with a mild value and keep header ↺ / tray **Restore original** reachable.
 
@@ -15,10 +15,10 @@ Not executed by development tools. Use only with deliberate user authorization. 
 
 ## Popup geometry (native acceptance not performed)
 
-- First tray open: 430×340 logical popup placed within the clicked monitor's work area. Drag title/header blank space with the left mouse button; Settings, Restore, − and all inputs must not move the window. Right/middle click must not start the custom drag. A double-click's second press (`detail === 2`) is suppressed; its first primary press can still initiate dragging.
-- Drag each of four borders and four corners; cursor hints and lower-right grip are present. Native resizing respects the 430×260 logical minimum and current work area; settings/recovery/many display rows remain scrollable with readable controls.
+- First tray open: 430×340 logical popup placed within the clicked monitor's work area. Drag title/header blank space with the left mouse button; Settings, Restore, − and all inputs must not move the window. Double-clicking the header must not maximize it.
+- Drag each of four borders and four corners (native Tauri/Windows resizing). The 430×260 logical minimum holds; settings/recovery/many display rows remain scrollable with readable controls.
 - Move and resize, then hide with −, Escape and tray toggle separately. Reopen from either monitor's tray: retain the adjusted geometry, not a fresh tray anchor/default size. Restart is intentionally **not** persisted.
-- Test moves between existing same-DPI monitors of different work-area dimensions, mixed DPI, negative monitor origins, work-area/taskbar changes and monitor removal while visible and while hidden. Rebind native min/max constraints when the selected work area changes; ordinary same-area dragging must not keep snapping the window back into bounds. Preserve/clamp existing geometry to the best remaining work area; native move/DPI events reconcile on the main thread, with a two-second periodic fallback and reopen check. Avoid native default/minimum inflation when first opening on a different-DPI monitor.
+- Move between monitors of different DPI and check that Windows rescales the popup. Disconnect the popup's monitor while it is hidden, then reopen from the tray: it opens near the tray again.
 - Keep dimming controls untouched; compare read-only native ramps and startup registration before/after all movement/resizing/hiding. Never launch two real controllers together or kill the live watchdog for this acceptance.
 
 ## Dimming and recovery
@@ -32,8 +32,9 @@ Not executed by development tools. Use only with deliberate user authorization. 
 - Slider drag/click uses integer steps of 1. Slider arrows / wheel add or subtract 5 from the current value (23→28), Home=0, End=90. Number typing / spinner / arrows use steps of 1; invalid fractions / out-of-range values do not apply. No modal confirmation.
 - Rapid drag: controls remain responsive; final released value wins. Restore during pending input must not be followed by late re-dimming, including a request already in flight.
 - Linked / independent / include controls: verify intended displays; zero and exclusion restore their originals.
-- Boundary investigation, one intentional request at a time: 44, 45, 46, 49, 50, 51, 55, 90. Record requested value, Win32 API result, readback match and visible effect separately. Stop at the first failure; Restore before another attempt. Do not sweep automatically, remap values or change gamma-related registry settings. Mock tests do not establish the Windows/driver cutoff.
-- If an update is ignored but readback still equals the last verified ramp, that ramp should remain protected without repeated SET calls. Otherwise expect an honest error and best-effort restoration; requested UI values alone are not proof of effective gamma.
+- Boundary investigation, one intentional request at a time: 44, 45, 46, 49, 50, 51, 55, 90. Record requested value, Win32 API result, readback match and visible effect separately. Do not sweep automatically, remap values or change gamma-related registry settings. Mock tests do not establish the Windows/driver cutoff.
+- If an update is rejected or ignored but readback still equals the last verified ramp, expect "Windows rejected N and kept M.", controls back at M and still usable, and no repeated SET calls. Otherwise expect paused controls, an honest error and best-effort restoration; requested UI values alone are not proof of effective gamma.
+- Unplug a dimmed display: the notice and tray item offer **Quit anyway**. Plain Restore and quit stays open on the first attempt; Quit anyway exits, the watchdog stays running, and reconnecting the display restores its original, after which the watchdog exits.
 - Check actual hardware cursor, topmost / fullscreen windows and each display. Screenshots cannot establish gamma's visible effect.
 - Hide the popup for longer than 15 seconds; continuous dimming remains protected by the native worker. Header Restore and tray Restore / Restore and quit return saved originals. Restoration failure must cancel Quit and permit retry.
 - Verify native WebView2 focus, popup work-area placement / mixed DPI and hotplug separately. Do not kill both application and watchdog to test recovery.

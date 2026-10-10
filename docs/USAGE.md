@@ -38,16 +38,12 @@ The popup stays open on focus loss. Closing or hiding it is not the same as quit
 
 ## Move and resize
 
-Drag the title or empty header space to move the popup. Buttons and inputs do not initiate window dragging. Resize from any border or corner; the lower-right corner has a small grip.
+Drag the title or empty header space to move the popup; buttons and inputs do not start a drag. Resize from any border or corner. Moving and resizing use native Windows window handling.
 
-- The initial size is 430×340 logical pixels, with a 430×260 minimum.
+- The first open places a 430×340 logical-pixel popup near the tray icon; the minimum size is 430×260.
 - Expanded settings, details or many displays use internal scrolling.
-- Position and size survive hiding and reopening during the current running session only.
-- Reopening does not reset the popup to its default size or tray position.
-- Restarting opens a fresh popup near the tray; geometry is not saved between launches.
-- Work-area and DPI changes keep the existing geometry within the available screen area.
-- If a monitor becomes unavailable, the popup moves to the nearest remaining work area.
-- Very small work areas take priority over the minimum size.
+- Position and size survive hiding and reopening while the app runs; restarting opens a fresh popup near the tray.
+- If no screen shows the popup's title area when you reopen it (for example, its monitor was disconnected), it opens near the tray again.
 
 Moving or resizing does not apply dimming or change startup settings.
 
@@ -63,13 +59,17 @@ Keep the executable in a stable location. After moving or renaming it, enable th
 
 **0** means original gamma. **90** requests 10% of the original gamma values, not 10% backlight brightness. The app uses GPU gamma adjustment, not a screen overlay or DDC/CI.
 
-If Windows or the driver rejects a request, or readback cannot confirm it, the app pauses dimming controls and discards queued requests. While paused, the numbers are requested values, not confirmed applied values.
+If Windows or the driver rejects a level and the display still reads back the previous one, the app keeps the previous level, shows a notice such as "Windows rejected 55 and kept 40." and leaves the controls usable. **Details** shows the API result and readback. Other failures, where the applied state cannot be confirmed, pause the dimming controls and discard queued requests; the numbers are then requested values, not confirmed ones.
 
 1. Use **Restore** in the recovery notice.
 2. After a successful restore, deliberately try a lower amount.
 3. Expand **Details** to distinguish API acceptance from readback results if needed.
 
 The app does not automatically retry, silently clamp the requested range or bypass driver restrictions. If restoration fails, controls remain paused and recovery stays available. A status-read failure also blocks new requests until status returns. If restoration fails when quitting, the app stays open so you can retry Restore.
+
+If a dimmed display is unplugged, it cannot be restored until it returns. The tray item then reads **Quit anyway**: attached displays are restored, the app quits, and the recovery watchdog keeps the unplugged display's original and restores it when the display returns. The watchdog keeps running until then or until you sign out, and the installer refuses to update while it runs. Any other restoration failure still keeps the app open.
+
+If a display's saved gamma already looks dimmed at startup, usually left by an earlier session that could not restore, the notice offers **Reset to default ramp** to give that display the standard linear ramp.
 
 HDR, ICC profiles, Night Light, driver behavior and GPU/OS resets can interfere with gamma adjustment. Hardware cursors may look different from the dimmed screen. Support across the full requested range depends on the system; API acceptance or matching readback alone does not establish the visible effect. Recovery is best effort if native calls block or the OS or both processes fail.
 
