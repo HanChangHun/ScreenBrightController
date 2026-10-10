@@ -31,8 +31,7 @@ class BrandingTests(unittest.TestCase):
                 continue
             self.assertIsNone(legacy.search(path.read_text(encoding='utf-8')), str(path.relative_to(ROOT)))
         watchdog = (ROOT / 'src/watchdog.rs').read_text(encoding='utf-8')
-        for name in ['SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN', 'SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT']:
-            self.assertIn(name, watchdog)
+        self.assertIn('SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT', watchdog)
         self.assertIn('emit("display-error"', (ROOT / 'app/src-tauri/src/main.rs').read_text(encoding='utf-8'))
         self.assertIn("listen('display-error'", (ROOT / 'app/ui/app.js').read_text(encoding='utf-8'))
         config = json.loads((ROOT / 'app/src-tauri/tauri.conf.json').read_text(encoding='utf-8'))

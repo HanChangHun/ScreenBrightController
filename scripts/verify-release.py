@@ -1,6 +1,6 @@
 """Verify built executables without desktop interaction or native gamma writes."""
 from pathlib import Path
-import argparse, subprocess, json, os, secrets, threading, queue, hashlib
+import argparse, subprocess, json, os, threading, queue, hashlib
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--exe", type=Path, default=root / 'target/release/ScreenBrightController.exe')
@@ -57,15 +57,14 @@ parent = subprocess.Popen([str(app), '--mock-parent-wait'], stdout=subprocess.PI
 guard = None
 try:
     assert get(lines(parent.stdout)).strip() == b'READY'
-    secret = secrets.token_hex(32)
-    env = dict(os.environ, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN=secret, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT=str(parent.pid))
+    env = dict(os.environ, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT=str(parent.pid))
     guard = subprocess.Popen([str(app), '--watchdog-mock'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     responses = lines(guard.stdout)
     def request(payload):
         guard.stdin.write(json.dumps(payload).encode() + b'\n')
         guard.stdin.flush()
         return json.loads(get(responses))
-    assert request({'command':'Hello','token':secret})['ok']
+    assert request({'command':'Hello'})['ok']
     armed = request({'command':'Continuous','id':'mock-1','lease':10})
     assert armed['mock_values']['mock-1'] == 100
     parent.kill()

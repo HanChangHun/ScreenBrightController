@@ -1,6 +1,6 @@
 """Exercise the actual release watchdog in memory only; never invokes native gamma set."""
 from pathlib import Path
-import argparse, json, os, secrets, subprocess, time, hashlib
+import argparse, json, os, subprocess, time, hashlib
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--exe", type=Path, default=root / 'target/release/ScreenBrightController.exe')
@@ -11,8 +11,7 @@ if not exe.is_file():
     parser.error(f'Executable not found: {exe}; build with npm --prefix app run build first')
 evidence = options.evidence_dir.resolve()
 evidence.mkdir(parents=True, exist_ok=True)
-secret = secrets.token_hex(32)
-env = dict(os.environ, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN=secret, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT=str(os.getpid()))
+env = dict(os.environ, SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT=str(os.getpid()))
 guard = subprocess.Popen([str(exe), '--watchdog-mock'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
 def request(payload):
     guard.stdin.write((json.dumps(payload)+'\n').encode())
@@ -25,7 +24,7 @@ def accepted(payload):
     assert result['ok'], result
     return result
 try:
-    accepted({'command':'Hello','token':secret})
+    accepted({'command':'Hello'})
     accepted({'command':'Continuous','id':'mock-1','lease':10})
     assert not request({'command':'Continuous','id':'mock-1','lease':10})['ok']
     assert not request({'command':'Renew','id':'mock-2','lease':10})['ok']

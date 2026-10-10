@@ -16,7 +16,7 @@ use std::{
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", deny_unknown_fields)]
 pub enum Request {
-    Hello { token: String },
+    Hello,
     Continuous { id: String, lease: u64 },
     Renew { id: String, lease: u64 },
     Restore { id: String },
@@ -38,22 +38,6 @@ extern "system" {
     fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
     fn WaitForSingleObject(handle: *mut std::ffi::c_void, ms: u32) -> u32;
     fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
-}
-#[link(name = "bcrypt")]
-extern "system" {
-    fn BCryptGenRandom(
-        algorithm: *mut std::ffi::c_void,
-        buffer: *mut u8,
-        length: u32,
-        flags: u32,
-    ) -> i32;
-}
-fn token() -> Result<String, String> {
-    let mut bytes = [0u8; 32];
-    if unsafe { BCryptGenRandom(std::ptr::null_mut(), bytes.as_mut_ptr(), 32, 2) } != 0 {
-        return Err("OS random generator failed".into());
-    }
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 struct Parent(*mut std::ffi::c_void);
 impl Parent {
@@ -117,22 +101,19 @@ fn response<D: GuardBackend>(g: &Guard<D>, error: Option<String>, snapshot: bool
     }
 }
 pub fn serve(mock: bool) -> Result<(), String> {
-    let secret = std::env::var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN")
-        .map_err(|_| "watchdog must be launched by application with owned pipes")?;
     let pid = std::env::var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT")
-        .map_err(|_| "missing parent")?
+        .map_err(|_| "watchdog must be launched by the application")?
         .parse::<u32>()
         .map_err(|_| "invalid parent")?;
-    std::env::remove_var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN");
     std::env::remove_var("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT");
     let parent = Parent::open(pid)?;
     if mock {
-        serve_backend(Mock::default(), secret, parent)
+        serve_backend(Mock::default(), parent)
     } else {
-        serve_backend(Native, secret, parent)
+        serve_backend(Native, parent)
     }
 }
-fn serve_backend<D: GuardBackend>(driver: D, secret: String, parent: Parent) -> Result<(), String> {
+fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), String> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
@@ -155,9 +136,8 @@ fn serve_backend<D: GuardBackend>(driver: D, secret: String, parent: Parent) -> 
     let hello = rx
         .recv_timeout(Duration::from_secs(5))
         .map_err(|_| "watchdog handshake timeout")?;
-    match serde_json::from_str::<Request>(&hello).map_err(|e| e.to_string())? {
-        Request::Hello { token } if token == secret => {}
-        _ => return Err("invalid owned-pipe handshake".into()),
+    if !matches!(serde_json::from_str(&hello), Ok(Request::Hello)) {
+        return Err("invalid handshake".into());
     }
     let mut g = Guard::new(driver)?;
     respond(&response(&g, None, true))?;
@@ -230,7 +210,6 @@ pub struct Link {
 }
 impl Link {
     pub fn spawn(mock: bool) -> Result<Self, String> {
-        let secret = token()?;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let mut child = Command::new(exe)
             .arg(if mock {
@@ -238,7 +217,6 @@ impl Link {
             } else {
                 "--watchdog"
             })
-            .env("SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN", &secret)
             .env(
                 "SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT",
                 std::process::id().to_string(),
@@ -268,7 +246,7 @@ impl Link {
             output,
             monitors: vec![],
         };
-        let response = link.request(Request::Hello { token: secret })?;
+        let response = link.request(Request::Hello)?;
         link.monitors = response.monitors;
         Ok(link)
     }

@@ -31,10 +31,6 @@ fn process_death_restores_with_pipe_still_open() {
     let mut guard = std::process::Command::new(exe)
         .arg("--watchdog-mock")
         .env(
-            "SCREEN_BRIGHT_CONTROLLER_WATCHDOG_TOKEN",
-            "test-owned-secret",
-        )
-        .env(
             "SCREEN_BRIGHT_CONTROLLER_WATCHDOG_PARENT",
             parent.id().to_string(),
         )
@@ -51,10 +47,7 @@ fn process_death_restores_with_pipe_still_open() {
         output.read_line(&mut line).unwrap();
         serde_json::from_str::<serde_json::Value>(&line).unwrap()
     };
-    assert_eq!(
-        request(serde_json::json!({"command":"Hello","token":"test-owned-secret"}))["ok"],
-        true
-    );
+    assert_eq!(request(serde_json::json!({"command":"Hello"}))["ok"], true);
     assert_eq!(
         request(serde_json::json!({"command":"Continuous","id":"mock-1","lease":10}))
             ["mock_values"]["mock-1"],
