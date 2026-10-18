@@ -15,7 +15,7 @@ Download `ScreenBrightController_<version>_x64-setup.exe` from [GitHub Releases]
 
 Installation does not enable Windows startup or apply dimming. Launch from the Start menu, then left-click the tray icon to open the controls. There is no separate main window or Open app action. Normal launch, login launch and second-instance activation leave the popup hidden and do not apply dimming or restore brightness.
 
-Updates are manual; download and run the newer installer. Before updating or uninstalling, use **Restore and quit** in the tray menu. The installer refuses to replace or remove a running executable and does not forcibly stop the app or its recovery watchdog.
+Updates are checked on launch and every six hours; an available stable release appears as a dismissible banner when you open the popup. **Install & restart** downloads only this repository's release asset, checks its SHA-256, restores brightness and waits for both app and watchdog before running setup. It does not reapply dimming. Settings has **Check for updates**; no installation happens without clicking the install button. Installers remain unsigned. For a separately downloaded installer or uninstall, use **Restore and quit** first; the installer refuses a running executable and never forcibly stops the app or watchdog.
 
 Old portable copies in a development `dist` folder are not required by the installed app. Do not run them alongside it or run two gamma controllers together.
 

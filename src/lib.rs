@@ -9,6 +9,7 @@ pub mod session;
 pub mod startup;
 #[cfg(windows)]
 pub mod ui;
+pub mod update;
 #[cfg(windows)]
 pub mod watchdog;
 pub type Ramp = Vec<Vec<u16>>;

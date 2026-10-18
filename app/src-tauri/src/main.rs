@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod tray_wheel;
+mod update;
 use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     session::Session,
@@ -224,7 +225,10 @@ fn main() {
         .manage(Mutex::new(Err::<UiSession, String>(
             "starting read-only snapshot".into(),
         )))
+        .manage(update::Updates::default())
         .invoke_handler(tauri::generate_handler![
+            update::check_update,
+            update::install_update,
             get_autostart,
             set_autostart,
             status,

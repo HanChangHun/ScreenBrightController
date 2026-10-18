@@ -27,7 +27,7 @@ Requires Windows x64. The installer needs no administrator rights and installs W
 - Known limits: a hardware cursor may stay bright, drivers may apply changes late, and hotplug, recycled display IDs or GPU/OS resets while dimmed are unsupported. An accepted API call or matching readback does not prove the visible effect, and recovery is best effort if native calls hang or both the app and its watchdog stop.
 - If Windows rejects a dimming level, the previous level stays. If controls pause after another error, use **Restore** before trying a lower value.
 - If a display's saved gamma is already far below normal at launch (for example, both the app and its watchdog stopped while dimmed), the popup warns and offers **Reset to default ramp**. It never resets on its own, because calibrated ramps are legitimately non-linear.
-- Updates are manual. Use **Restore and quit** before updating or uninstalling.
+- Updates are checked automatically and shown in a non-modal popup banner, following the `claude-usage` UI. Use **Install & restart** to download the published installer, verify SHA-256, restore brightness, wait for the app and watchdog to exit, install and restart without reapplying dimming. Settings also has **Check for updates**. Installers remain unsigned; checksums are not signatures. For an external installer or uninstall, use **Restore and quit** first.
 - Updating keeps **Start with Windows**. Uninstalling does not remove it either, so turn it off in the popup settings before uninstalling.
 - The installer is unsigned and may trigger SmartScreen; see [installation notes](docs/USAGE.md#installation-and-updates).
 

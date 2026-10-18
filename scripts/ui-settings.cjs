@@ -25,5 +25,17 @@ const settle=()=>new Promise(r=>setTimeout(r,0));
  f.setReply({enabled:null,error:'Get failed'});f.nodes['settings-toggle'].events.click({isTrusted:true});f.nodes['settings-toggle'].events.click({isTrusted:true});await settle();eq(f.nodes.autostart.disabled,true);eq(f.nodes['startup-message'].textContent,'Get failed');
  f.setPending(Promise.reject(Error('IPC get failed')));f.nodes['settings-toggle'].events.click({isTrusted:true});f.nodes['settings-toggle'].events.click({isTrusted:true});await settle();eq(f.nodes.autostart.disabled,true);eq(f.nodes.autostart.checked,false);eq(f.nodes['startup-message'].textContent.includes('Startup state unavailable'),true);
  const store=new Map();const demoWindow={addEventListener(){}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../app/demo/demo.js'),'utf8'),{window:demoWindow,location:{search:'?demo=1'},URLSearchParams,localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)}});eq((await demoWindow.__TAURI__.core.invoke('get_autostart')).enabled,false);eq((await demoWindow.__TAURI__.core.invoke('set_autostart',{enabled:true})).enabled,true);eq((await demoWindow.__TAURI__.core.invoke('status')).armed,[]);
+ // The update controller uses memory IPC only: checks never install; only a trusted click does.
+ const updateNodes=Object.fromEntries(['update-banner','update-message','update-notes','update-install','update-dismiss','update-check','update-status'].map(id=>[id,{hidden:true,disabled:false,textContent:'',events:{},addEventListener(k,f){this.events[k]=f;}}]));
+ const updateCalls=[];let updateReply={current:'0.6.2',release:{version:'0.6.3',notes:'<b>plain notes</b>'}},installReject=false,updateTimer;
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../app/ui/update.js'),'utf8'),{document:{getElementById:id=>updateNodes[id]},window:{__TAURI__:{core:{invoke:async c=>{updateCalls.push(c);if(c==='install_update'&&installReject)throw Error('checksum mismatch');return updateReply;}}}},setInterval:f=>{updateTimer=f;},console});
+ await settle();eq(updateCalls,['check_update']);eq(updateNodes['update-banner'].hidden,false);eq(updateNodes['update-notes'].textContent,'<b>plain notes</b>');
+ updateNodes['update-install'].events.click({isTrusted:false});await settle();eq(updateCalls.includes('install_update'),false);
+ updateNodes['update-dismiss'].events.click({isTrusted:true});eq(updateNodes['update-banner'].hidden,true);
+ updateNodes['update-check'].events.click({isTrusted:false});await settle();eq(updateCalls.length,1);
+ updateNodes['update-check'].events.click({isTrusted:true});await settle();eq(updateNodes['update-banner'].hidden,false);
+ installReject=true;updateNodes['update-install'].events.click({isTrusted:true});eq(updateNodes['update-install'].disabled,true);await settle();eq(updateNodes['update-install'].disabled,false);eq(updateNodes['update-message'].textContent.includes('checksum mismatch'),true);
+ updateReply={current:'0.6.2',release:null};await updateTimer();await settle();eq(updateNodes['update-banner'].hidden,true);
+ updateNodes['update-check'].events.click({isTrusted:true});await settle();eq(updateNodes['update-status'].textContent.includes('latest'),true);
  console.log(`Settings UI PASS: ${assertions} assertions`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

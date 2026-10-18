@@ -1,6 +1,6 @@
 # Windows release procedure
 
-The distributable is a per-user NSIS installer. Keep `productName`, `identifier`, `mainBinaryName` and `publisher` stable so upgrades retain the same installation and WebView2 data. No automatic updater or signing key is configured; do not represent checksums as a code signature.
+The distributable is a per-user NSIS installer. Keep `productName`, `identifier`, `mainBinaryName` and `publisher` stable so upgrades retain the same installation and WebView2 data. Update checks are automatic, but download/install requires the user's Install & restart click. The updater consumes the same published setup and SHA256SUMS assets, restores brightness, then waits for app and watchdog exit before running the refusing installer. No signing key is configured; do not represent checksums as a code signature.
 
 ## Build and verify
 

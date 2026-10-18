@@ -8,6 +8,8 @@ if(!window.__TAURI__&&new URLSearchParams(location.search).has('demo')){
  window.addEventListener('storage',e=>{if(e.key===key)changed();});
  window.__TAURI__={core:{invoke:async(command,args={})=>{
  const state=read();if(command==='status')return state;
+ if(command==='check_update')return {current:'0.6.2',release:new URLSearchParams(location.search).has('update')?{version:'0.6.3',notes:'Browser demo: sample release notes. Memory only.'}:null};
+ if(command==='install_update')throw Error('Browser demo only: no installer is downloaded or launched.');
  if(command==='get_autostart')return {enabled:state.autostart===true,error:null};
  if(command==='set_autostart'){state.autostart=args.enabled===true;localStorage.setItem(key,JSON.stringify(state));return {enabled:state.autostart,error:null};}
  if(command==='live_control'){
