@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod tray_wheel;
 use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     session::Session,
@@ -308,6 +309,11 @@ fn main() {
                 })
                 .build(app)?;
 
+            if !demo {
+                if let Err(error) = tray_wheel::start(app.handle()) {
+                    report(app.handle(), error);
+                }
+            }
             refresh_attention(app.handle());
 
             Ok(())

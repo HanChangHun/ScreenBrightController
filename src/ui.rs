@@ -37,6 +37,41 @@ pub fn popup_bounds(work: PopupRect, click: (f64, f64), scale: f64) -> PopupRect
     let y = (click.1.round() as i32 - h as i32 - gap).clamp(top, top + height as i32 - h as i32);
     (x, y, w, h)
 }
+/// Whole wheel detents only; invalid hover, injected input, a new generation or a
+/// long pause discards a high-resolution wheel's partial detent.
+#[derive(Default)]
+pub struct TrayWheel {
+    remainder: i32,
+    generation: u64,
+    last_ms: u64,
+}
+impl TrayWheel {
+    pub fn steps(
+        &mut self,
+        delta: i32,
+        over_icon: bool,
+        injected: bool,
+        generation: u64,
+        now_ms: u64,
+    ) -> i32 {
+        if !over_icon
+            || injected
+            || generation != self.generation
+            || now_ms.saturating_sub(self.last_ms) > 500
+        {
+            self.remainder = 0;
+        }
+        self.generation = generation;
+        self.last_ms = now_ms;
+        if !over_icon || injected {
+            return 0;
+        }
+        self.remainder = self.remainder.saturating_add(delta);
+        let steps = self.remainder / 120;
+        self.remainder %= 120;
+        steps
+    }
+}
 #[derive(Clone, Serialize)]
 pub struct Control {
     pub dim: i64,
@@ -154,6 +189,23 @@ impl UiSession {
             message: self.message.clone(),
             notice: self.notice.clone(),
         })
+    }
+    /// Native physical wheel gesture; never changes independent mode or exclusions.
+    /// A changed level invalidates already queued popup intents before applying.
+    pub fn tray_wheel(&mut self, steps: i32, generation: u64) -> Result<(), String> {
+        if generation != self.generation || self.live_blocked {
+            return Err("Live request cancelled; Restore before retrying.".into());
+        }
+        let master = &self.controls["master"];
+        if !master.enabled || steps == 0 {
+            return Ok(());
+        }
+        let dim = (master.dim - i64::from(steps) * 5).clamp(0, 90);
+        if dim == master.dim {
+            return Ok(());
+        }
+        self.generation += 1;
+        self.live_control("master", dim, true, self.generation)
     }
     /// Only intentional UI gestures use this command. Generation fences all pre-Restore intents.
     pub fn live_control(

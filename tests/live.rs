@@ -1,5 +1,65 @@
 #![cfg(windows)]
 use screen_bright_controller::{session::Session, ui::UiSession};
+#[test]
+fn tray_wheel_steps_brighten_darken_clamp_and_keep_exclusions() {
+    let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
+    ui.tray_wheel(-1, 0).unwrap();
+    assert_eq!(ui.controls["master"].dim, 5);
+    ui.live_control("mock-2", 0, false, ui.generation).unwrap();
+    ui.tray_wheel(-2, ui.generation).unwrap();
+    assert_eq!(ui.controls["master"].dim, 15);
+    assert_eq!(armed(&ui), ["mock-1"]);
+    ui.tray_wheel(1, ui.generation).unwrap();
+    assert_eq!(ui.controls["master"].dim, 10);
+    ui.tray_wheel(i32::MIN, ui.generation).unwrap();
+    assert_eq!(ui.controls["master"].dim, 90);
+    ui.tray_wheel(i32::MAX, ui.generation).unwrap();
+    assert_eq!(ui.controls["master"].dim, 0);
+    assert!(armed(&ui).is_empty());
+    let revision = ui.revision;
+    ui.tray_wheel(1, ui.generation).unwrap();
+    ui.tray_wheel(0, ui.generation).unwrap();
+    assert_eq!(ui.revision, revision);
+}
+#[test]
+fn tray_wheel_preserves_unlinked_mode_and_cancels_old_input_after_restore() {
+    let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
+    ui.live_control("master", 0, false, 0).unwrap();
+    ui.live_control("mock-1", 23, true, 0).unwrap();
+    ui.tray_wheel(-1, ui.generation).unwrap();
+    assert!(!ui.controls["master"].enabled);
+    assert_eq!(ui.controls["mock-1"].dim, 23);
+    ui.restore().unwrap();
+    assert!(ui.tray_wheel(-1, 0).is_err());
+    assert!(armed(&ui).is_empty());
+    ui.live_control("master", 0, true, ui.generation).unwrap();
+    let old = ui.generation;
+    ui.tray_wheel(-1, old).unwrap();
+    assert!(
+        ui.generation > old,
+        "tray gesture fences pending popup input"
+    );
+    assert!(ui.live_control("master", 60, true, old).is_err());
+    if let Session::Demo(c) = &mut ui.session {
+        c.driver.fail_set = true;
+    }
+    assert!(ui.tray_wheel(-1, ui.generation).is_err());
+    assert!(ui.tray_wheel(-1, ui.generation).is_err());
+}
+#[test]
+fn tray_wheel_filters_injected_outside_stale_and_accumulates_high_resolution() {
+    use screen_bright_controller::ui::TrayWheel;
+    let mut wheel = TrayWheel::default();
+    assert_eq!(wheel.steps(60, true, false, 0, 0), 0);
+    assert_eq!(wheel.steps(60, true, false, 0, 1), 1);
+    assert_eq!(wheel.steps(-240, true, false, 0, 2), -2);
+    assert_eq!(wheel.steps(120, true, true, 0, 3), 0);
+    assert_eq!(wheel.steps(120, false, false, 0, 4), 0);
+    assert_eq!(wheel.steps(60, true, false, 0, 5), 0);
+    assert_eq!(wheel.steps(60, true, false, 1, 6), 0);
+    assert_eq!(wheel.steps(60, true, false, 1, 1000), 0);
+    assert_eq!(wheel.steps(120, true, false, 1, 1001), 1);
+}
 fn armed(ui: &UiSession) -> Vec<String> {
     let Session::Demo(c) = &ui.session else {
         unreachable!()
