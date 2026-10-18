@@ -200,7 +200,8 @@ impl UiSession {
         if !master.enabled || steps == 0 {
             return Ok(());
         }
-        let dim = (master.dim - i64::from(steps) * 5).clamp(0, 90);
+        // Match the popup slider: wheel up increases dimming, wheel down decreases it.
+        let dim = (master.dim + i64::from(steps) * 5).clamp(0, 90);
         if dim == master.dim {
             return Ok(());
         }
