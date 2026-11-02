@@ -7,6 +7,12 @@ use crate::{
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
+/// Whether a tray left-click opens the popup. Pressing the tray icon takes focus from a
+/// visible popup, so focus loss may hide it just before the click arrives; a click within
+/// 500 ms of such a hide is the closing click and must not reopen it.
+pub fn tray_click_shows_popup(visible: bool, ms_since_focus_hide: Option<u64>) -> bool {
+    !visible && ms_since_focus_hide.is_none_or(|ms| ms > 500)
+}
 /// Physical x, y, width, height.
 pub type PopupRect = (i32, i32, u32, u32);
 /// Reopening keeps the user's native geometry while some work area shows the popup's top strip.

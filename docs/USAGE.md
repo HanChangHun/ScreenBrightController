@@ -34,7 +34,7 @@ Changes apply immediately, without an Apply button or confirmation dialog.
 | Right-click the tray icon | Open Restore and Restore and quit actions |
 | Open ⚙ Settings | Show the optional Windows startup setting |
 
-The popup stays open on focus loss. Closing or hiding it is not the same as quitting.
+The popup also hides when it loses focus, and dimming stays active. Closing or hiding it is not the same as quitting.
 
 ## Move and resize
 
@@ -65,7 +65,7 @@ If Windows or the driver rejects a level and the display still reads back the pr
 2. After a successful restore, deliberately try a lower amount.
 3. Expand **Details** to distinguish API acceptance from readback results if needed.
 
-The app does not automatically retry, silently clamp the requested range or bypass driver restrictions. If restoration fails, controls remain paused and recovery stays available. A status-read failure also blocks new requests until status returns. If restoration fails when quitting, the app stays open so you can retry Restore.
+The app does not automatically retry a dimming level, silently clamp the requested range or bypass driver restrictions. If restoration fails, controls remain paused and recovery stays available while the app keeps retrying the restoration; the pause ends by itself once every display is back at its original. A status-read failure also blocks new requests until status returns. If restoration fails when quitting, the app stays open so you can retry Restore.
 
 If a dimmed display is unplugged, it cannot be restored until it returns. The tray item then reads **Quit anyway**: attached displays are restored, the app quits, and the recovery watchdog keeps the unplugged display's original and restores it when the display returns. The watchdog keeps running until then or until you sign out, and the installer refuses to update while it runs. Any other restoration failure still keeps the app open.
 

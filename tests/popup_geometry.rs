@@ -1,5 +1,17 @@
 //! Session geometry is separate from display controls; these tests are memory only.
-use screen_bright_controller::ui::{popup_bounds, popup_on_screen};
+use screen_bright_controller::ui::{popup_bounds, popup_on_screen, tray_click_shows_popup};
+
+#[test]
+fn tray_click_that_took_focus_from_the_popup_does_not_reopen_it() {
+    // Visible: the click hides it (toggle).
+    assert!(!tray_click_shows_popup(true, None));
+    // Pressing the tray icon took focus, so focus loss already hid the popup.
+    assert!(!tray_click_shows_popup(false, Some(0)));
+    assert!(!tray_click_shows_popup(false, Some(500)));
+    // Hidden earlier by focus loss, −, Escape or never shown: the click opens it.
+    assert!(tray_click_shows_popup(false, Some(501)));
+    assert!(tray_click_shows_popup(false, None));
+}
 
 #[test]
 fn reopening_keeps_native_geometry_until_no_screen_shows_the_title_strip() {

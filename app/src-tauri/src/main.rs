@@ -5,12 +5,13 @@ use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     log,
     session::Session,
-    ui::{popup_bounds, popup_on_screen, PopupRect, Status, UiSession},
+    ui::{popup_bounds, popup_on_screen, tray_click_shows_popup, PopupRect, Status, UiSession},
 };
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Mutex, OnceLock,
 };
+use std::time::Instant;
 static STARTUP_LOCK: Mutex<()> = Mutex::new(());
 #[tauri::command]
 async fn get_autostart() -> Result<startup::Status, String> {
@@ -48,6 +49,12 @@ const TRAY_ID: &str = "screen-bright-controller";
 static QUIT_ANYWAY: AtomicBool = AtomicBool::new(false);
 /// Main thread only: the popup has been anchored to the tray once.
 static POPUP_PLACED: AtomicBool = AtomicBool::new(false);
+/// Main thread only: when focus loss last hid the popup, in ms since `CLOCK` (0 = never).
+static FOCUS_HIDDEN_MS: AtomicU64 = AtomicU64::new(0);
+static CLOCK: OnceLock<Instant> = OnceLock::new();
+fn clock_ms() -> u64 {
+    CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
 struct QuitItem(MenuItem<tauri::Wry>);
 fn tray_tooltip(attention: bool) -> &'static str {
     if attention {
@@ -305,15 +312,19 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if app
+                        let visible = app
                             .get_webview_window("popup")
-                            .is_some_and(|w| w.is_visible().unwrap_or(false))
-                        {
+                            .is_some_and(|w| w.is_visible().unwrap_or(false));
+                        let hidden = FOCUS_HIDDEN_MS.load(Ordering::SeqCst);
+                        let since = (hidden > 0).then(|| clock_ms().saturating_sub(hidden));
+                        if visible {
                             if let Some(w) = app.get_webview_window("popup") {
                                 let _ = w.hide();
                             }
-                        } else if let Err(e) = show_popup(app, position) {
-                            report(app, e);
+                        } else if tray_click_shows_popup(false, since) {
+                            if let Err(e) = show_popup(app, position) {
+                                report(app, e);
+                            }
                         }
                     }
                 })
@@ -344,10 +355,17 @@ fn main() {
             if window.label() != "popup" {
                 return;
             }
-            // Only explicit close hides the popup; focus loss does not.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            // Close and focus loss hide the popup like − and Escape; dimming continues.
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::Focused(false) if window.is_visible().unwrap_or(false) => {
+                    FOCUS_HIDDEN_MS.store(clock_ms(), Ordering::SeqCst);
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())
