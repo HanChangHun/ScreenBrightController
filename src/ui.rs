@@ -13,6 +13,12 @@ use std::collections::BTreeMap;
 pub fn tray_click_shows_popup(visible: bool, ms_since_focus_hide: Option<u64>) -> bool {
     !visible && ms_since_focus_hide.is_none_or(|ms| ms > 500)
 }
+/// Whether losing focus hides the popup. Dragging or resizing it moves focus from the
+/// webview to the popup's own native window for a moment, so only a foreground window of
+/// another process (or none) counts as the user moving elsewhere.
+pub fn focus_loss_hides_popup(visible: bool, foreground_pid: Option<u32>, own_pid: u32) -> bool {
+    visible && foreground_pid != Some(own_pid)
+}
 /// Physical x, y, width, height.
 pub type PopupRect = (i32, i32, u32, u32);
 /// Reopening keeps the user's native geometry while some work area shows the popup's top strip.

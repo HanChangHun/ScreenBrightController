@@ -1,5 +1,19 @@
 //! Session geometry is separate from display controls; these tests are memory only.
-use screen_bright_controller::ui::{popup_bounds, popup_on_screen, tray_click_shows_popup};
+use screen_bright_controller::ui::{
+    focus_loss_hides_popup, popup_bounds, popup_on_screen, tray_click_shows_popup,
+};
+
+#[test]
+fn only_focus_moving_to_another_app_hides_the_popup() {
+    let own = 4242;
+    // Dragging or resizing the popup briefly moves focus to its own native window.
+    assert!(!focus_loss_hides_popup(true, Some(own), own));
+    // Another app, the desktop or the taskbar took focus, or nothing is in front.
+    assert!(focus_loss_hides_popup(true, Some(77), own));
+    assert!(focus_loss_hides_popup(true, None, own));
+    // Already hidden: nothing to do.
+    assert!(!focus_loss_hides_popup(false, Some(77), own));
+}
 
 #[test]
 fn tray_click_that_took_focus_from_the_popup_does_not_reopen_it() {

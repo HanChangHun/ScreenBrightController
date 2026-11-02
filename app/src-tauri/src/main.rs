@@ -5,7 +5,10 @@ use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
     log,
     session::Session,
-    ui::{popup_bounds, popup_on_screen, tray_click_shows_popup, PopupRect, Status, UiSession},
+    ui::{
+        focus_loss_hides_popup, popup_bounds, popup_on_screen, tray_click_shows_popup, PopupRect,
+        Status, UiSession,
+    },
 };
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -54,6 +57,19 @@ static FOCUS_HIDDEN_MS: AtomicU64 = AtomicU64::new(0);
 static CLOCK: OnceLock<Instant> = OnceLock::new();
 fn clock_ms() -> u64 {
     CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+/// Process ID of the foreground window, if any. Read-only.
+fn foreground_pid() -> Option<u32> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_null() {
+        return None;
+    }
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(window, &mut pid) };
+    (pid != 0).then_some(pid)
 }
 struct QuitItem(MenuItem<tauri::Wry>);
 fn tray_tooltip(attention: bool) -> &'static str {
@@ -361,7 +377,13 @@ fn main() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-                tauri::WindowEvent::Focused(false) if window.is_visible().unwrap_or(false) => {
+                tauri::WindowEvent::Focused(false)
+                    if focus_loss_hides_popup(
+                        window.is_visible().unwrap_or(false),
+                        foreground_pid(),
+                        std::process::id(),
+                    ) =>
+                {
                     FOCUS_HIDDEN_MS.store(clock_ms(), Ordering::SeqCst);
                     let _ = window.hide();
                 }
