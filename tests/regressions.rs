@@ -1,4 +1,44 @@
 use screen_bright_controller::controller::*;
+#[cfg(windows)]
+#[test]
+fn log_files_live_in_the_tauri_app_data_directory() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../app/src-tauri/tauri.conf.json")).unwrap();
+    assert_eq!(
+        config["identifier"],
+        screen_bright_controller::log::IDENTIFIER
+    );
+    let dir = screen_bright_controller::log::dir().unwrap();
+    assert!(
+        dir.ends_with("io.github.screenbrightcontroller\\logs"),
+        "{dir:?}"
+    );
+}
+#[cfg(windows)]
+#[test]
+fn log_lines_stay_single_and_rotate_at_the_size_limit() {
+    use screen_bright_controller::log::{append, line};
+    let one = line("restore failed\r\nforged line");
+    assert_eq!(one.matches('\n').count(), 1, "{one}");
+    assert!(
+        !one.contains('\r') && one.ends_with("restore failed  forged line\n"),
+        "{one}"
+    );
+    assert!(one.contains(&format!("[{}]", std::process::id())), "{one}");
+    let dir = std::env::temp_dir().join(format!("sbc-log-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("app.log");
+    append(&path, "first\n", 10);
+    append(&path, "second\n", 10);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "first\nsecond\n");
+    append(&path, "third\n", 10);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "third\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app.log.1")).unwrap(),
+        "first\nsecond\n"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
 #[test]
 fn update_release_accepts_only_new_stable_exact_repository_assets() {
     use screen_bright_controller::update::Release;

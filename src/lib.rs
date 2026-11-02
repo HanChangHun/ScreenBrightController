@@ -3,6 +3,8 @@ pub mod cli;
 pub mod controller;
 pub mod guard;
 #[cfg(windows)]
+pub mod log;
+#[cfg(windows)]
 pub mod native;
 #[cfg(windows)]
 pub mod session;
@@ -29,6 +31,13 @@ pub fn linear_ramp() -> Ramp {
 pub fn looks_dimmed(ramp: &Ramp) -> bool {
     ramp.iter()
         .all(|c| c.last().is_some_and(|top| *top < 39321))
+}
+/// Top value of each channel, e.g. `65535/65535/65535`, for diagnostics.
+pub fn tops(ramp: &Ramp) -> String {
+    ramp.iter()
+        .map(|c| c.last().map_or("?".into(), u16::to_string))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 pub fn scale(original: &Ramp, percent: u8) -> Result<Ramp, String> {
     if !(10..=100).contains(&percent)

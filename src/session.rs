@@ -49,6 +49,17 @@ impl Session {
             Self::Demo(_) => true,
         }
     }
+    /// Nothing is dimmed and the watchdog holds no armed display or restore failure.
+    pub fn all_restored(&mut self) -> Result<bool, String> {
+        match self {
+            Self::Real(c) if c.changed.is_empty() => {
+                let status = c.driver.status()?;
+                Ok(status.armed.is_empty() && status.restore_errors.is_empty())
+            }
+            Self::Real(_) => Ok(false),
+            Self::Demo(c) => Ok(c.changed.is_empty()),
+        }
+    }
     pub fn monitors(&self) -> &[Monitor] {
         match self {
             Self::Real(c) => &c.monitors,

@@ -1,6 +1,7 @@
 use crate::{
     controller::{Driver, Mock, Monitor},
     guard::Guard,
+    log::write as log,
     native::Native,
     Ramp,
 };
@@ -11,12 +12,23 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT},
-    System::Threading::{OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE},
+    System::{
+        Threading::{OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE},
+        WindowsProgramming::QueryUnbiasedInterruptTime,
+    },
 };
+/// Milliseconds of awake time. Unlike `Instant` (QueryPerformanceCounter), this clock
+/// stops during sleep and hibernation, so a lease does not lapse merely because the PC
+/// slept; after resume the app still verifies the ramp before its next renewal.
+fn awake_ms() -> u64 {
+    let mut ticks = 0u64;
+    unsafe { QueryUnbiasedInterruptTime(&mut ticks) };
+    ticks / 10_000
+}
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", deny_unknown_fields)]
 pub enum Request {
@@ -107,8 +119,38 @@ pub fn serve(mock: bool) -> Result<(), String> {
     if mock {
         serve_backend(Mock::default(), parent)
     } else {
-        serve_backend(Native, parent)
+        // Only the real watchdog logs; memory fixtures never touch the user's log.
+        crate::log::init("watchdog.log");
+        let result = serve_backend(Native, parent);
+        if let Err(e) = &result {
+            log(format!("watchdog stopped: {e}"));
+        }
+        result
     }
+}
+/// One guard tick, returning a log line per restored display and per new restore failure.
+fn tick_events<D: Driver>(g: &mut Guard<D>, now: u64, alive: bool) -> Vec<String> {
+    let before = g.armed.clone();
+    let errors = g.errors.clone();
+    g.tick(now, alive);
+    let mut out = vec![];
+    for (id, deadline) in &before {
+        if !g.armed.contains_key(id) {
+            let why = if errors.contains_key(id) {
+                "retry succeeded"
+            } else if !alive {
+                "app gone"
+            } else if *deadline <= now {
+                "lease expired"
+            } else {
+                "restored"
+            };
+            out.push(format!("restored {id} ({why})"));
+        } else if let Some(e) = g.errors.get(id).filter(|e| errors.get(id) != Some(*e)) {
+            out.push(format!("restore {id} failed, retrying: {e}"));
+        }
+    }
+    out
 }
 /// How long restoration keeps retrying after the parent is gone.
 const RETRY_WINDOW_MS: u64 = 60_000;
@@ -150,16 +192,28 @@ fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), Strin
     }
     let mut g = Guard::new(driver)?;
     respond(&response(&g, None, true))?;
-    let clock = Instant::now();
+    let start = awake_ms();
+    let clock = || awake_ms().saturating_sub(start);
     let mut disconnected = false;
     let mut death_at = None;
     loop {
-        let now = clock.elapsed().as_millis() as u64;
+        let now = clock();
         let alive = parent.alive() && !disconnected;
+        if !alive && death_at.is_none() && !g.armed.is_empty() {
+            let how = if parent.alive() {
+                "closed its pipe"
+            } else {
+                "exited"
+            };
+            let ids: Vec<_> = g.armed.keys().cloned().collect();
+            log(format!("app {how} while {} stayed armed", ids.join(", ")));
+        }
         if !alive {
             death_at.get_or_insert(now);
         }
-        g.tick(now, alive);
+        for line in tick_events(&mut g, now, alive) {
+            log(line);
+        }
         if !alive && g.armed.is_empty() {
             let _ = respond(&response(&g, None, false));
             return Ok(());
@@ -184,21 +238,47 @@ fn serve_backend<D: GuardBackend>(driver: D, parent: Parent) -> Result<(), Strin
             Ok(line) => {
                 let result = match serde_json::from_str::<Request>(&line) {
                     Ok(Request::Continuous { id, lease }) => {
-                        let result =
-                            g.arm_continuous(&id, lease, clock.elapsed().as_millis() as u64);
+                        let result = g.arm_continuous(&id, lease, clock());
                         if result.is_ok() {
                             g.driver.simulate(&id);
                         }
+                        log(match &result {
+                            Ok(()) => format!("armed {id}"),
+                            Err(e) => format!("arm {id} rejected: {e}"),
+                        });
                         result
                     }
                     Ok(Request::Renew { id, lease }) => {
-                        g.renew(&id, lease, clock.elapsed().as_millis() as u64)
+                        let result = g.renew(&id, lease, clock());
+                        if let Err(e) = &result {
+                            log(format!("renew {id} rejected: {e}"));
+                        }
+                        result
                     }
-                    Ok(Request::Restore { id }) => g.restore(&id),
-                    Ok(Request::Reset { id }) => g.reset(&id),
+                    Ok(Request::Restore { id }) => {
+                        let armed = g.armed.contains_key(&id);
+                        let result = g.restore(&id);
+                        match &result {
+                            Ok(()) if armed => log(format!("restored {id} (app request)")),
+                            Err(e) => log(format!("restore {id} failed (app request): {e}")),
+                            Ok(()) => {}
+                        }
+                        result
+                    }
+                    Ok(Request::Reset { id }) => {
+                        let result = g.reset(&id);
+                        log(match &result {
+                            Ok(()) => format!("reset {id} to the default ramp"),
+                            Err(e) => format!("reset {id} rejected: {e}"),
+                        });
+                        result
+                    }
                     Ok(Request::Status) => Ok(()),
                     Ok(Request::Hello) => Err("invalid state or command".into()),
-                    Err(e) => Err(format!("invalid protocol: {e}")),
+                    Err(e) => {
+                        log(format!("rejected request: invalid protocol: {e}"));
+                        Err(format!("invalid protocol: {e}"))
+                    }
                 };
                 // Arm is acknowledged only after the immutable original and deadline exist.
                 if respond(&response(&g, result.err(), false)).is_err() {
@@ -259,8 +339,10 @@ impl Link {
         Ok(link)
     }
     pub fn request(&mut self, request: Request) -> Result<Response, String> {
-        if self.child.try_wait().map_err(|e| e.to_string())?.is_some() {
-            return Err("watchdog exited; no gamma writes allowed".into());
+        if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!(
+                "watchdog exited ({status}); no gamma writes allowed"
+            ));
         }
         // A reply that arrived after an earlier timeout must not answer this request.
         while self.output.try_recv().is_ok() {}
@@ -416,6 +498,45 @@ mod tests {
             .unwrap();
         reply_later(&tx, None);
         assert!(link.request(Request::Status).unwrap().ok);
+    }
+    #[test]
+    fn awake_clock_advances_with_real_time_while_awake() {
+        let start = awake_ms();
+        std::thread::sleep(Duration::from_millis(300));
+        let elapsed = awake_ms() - start;
+        assert!((250..2000).contains(&elapsed), "{elapsed}ms");
+    }
+    #[test]
+    fn tick_events_log_lease_restores_and_each_new_failure_once() {
+        let mut g = Guard::new(Mock::default()).unwrap();
+        g.arm_continuous("mock-1", 10, 0).unwrap();
+        assert!(tick_events(&mut g, 5_000, true).is_empty());
+        g.driver.fail_restore = true;
+        let failed = tick_events(&mut g, 10_000, true);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(
+            failed[0].contains("mock-1") && failed[0].contains("mock restore failure"),
+            "{failed:?}"
+        );
+        assert!(
+            tick_events(&mut g, 11_000, true).is_empty(),
+            "an unchanged failure is logged once"
+        );
+        g.driver.fail_restore = false;
+        assert_eq!(
+            tick_events(&mut g, 12_000, true),
+            ["restored mock-1 (retry succeeded)"]
+        );
+        g.arm_continuous("mock-2", 10, 13_000).unwrap();
+        assert_eq!(
+            tick_events(&mut g, 23_000, true),
+            ["restored mock-2 (lease expired)"]
+        );
+        g.arm_continuous("mock-2", 10, 24_000).unwrap();
+        assert_eq!(
+            tick_events(&mut g, 24_100, false),
+            ["restored mock-2 (app gone)"]
+        );
     }
     #[test]
     fn returned_display_gets_a_full_retry_window_after_a_long_unplug() {

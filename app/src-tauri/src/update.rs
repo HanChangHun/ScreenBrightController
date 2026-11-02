@@ -144,7 +144,8 @@ fn stage(app: &tauri::AppHandle, release: &Release) -> Result<(), String> {
         }
     };
     // A failed Restore keeps the app and watchdog running and never launches setup.
-    restore_app(&app.state::<State>(), app)?;
+    restore_app(&app.state::<State>(), app, "the update installer")?;
+    screen_bright_controller::log::write(format!("installing update {}", release.version));
     let powershell = std::env::var_os("SystemRoot").ok_or("SystemRoot unavailable")?;
     let powershell =
         std::path::PathBuf::from(powershell).join("System32/WindowsPowerShell/v1.0/powershell.exe");

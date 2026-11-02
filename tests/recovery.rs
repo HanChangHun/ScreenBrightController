@@ -18,24 +18,77 @@ fn safety_stop_and_failed_restore_expose_distinct_recovery_actions() {
     ui.live_control("master", 35, true, 0).unwrap();
     if let Session::Demo(c) = &mut ui.session {
         c.driver.current.get_mut("mock-1").unwrap()[0][0] = 123;
+        c.driver.fail_restore = true;
     }
+    // The automatic restoration fails, so this stop needs attention.
     assert!(ui.heartbeat().is_err());
     let stopped = ui.status().unwrap();
     assert!(stopped.live_blocked);
     assert_eq!(stopped.recovery, Some(Recovery::Safety));
-    if let Session::Demo(c) = &mut ui.session {
-        c.driver.fail_restore = true;
-    }
     assert!(ui.restore().is_err());
     let failed = ui.status().unwrap();
     assert!(failed.live_blocked);
     assert_eq!(failed.recovery, Some(Recovery::Restore));
     assert!(!armed(&ui).is_empty());
+    assert!(ui.heartbeat().is_err(), "a failing retry keeps the stop");
+    assert_eq!(ui.status().unwrap().recovery, Some(Recovery::Restore));
     if let Session::Demo(c) = &mut ui.session {
         c.driver.fail_restore = false;
     }
-    ui.restore().unwrap();
-    assert_eq!(ui.status().unwrap().recovery, None);
+    // The next heartbeat finishes the restoration; no Restore click is needed.
+    ui.heartbeat().unwrap();
+    let done = ui.status().unwrap();
+    assert_eq!(done.recovery, None);
+    assert!(!done.live_blocked && !ui.needs_attention());
+    assert_eq!(done.controls["master"].dim, 0);
+    assert!(done.notice.is_some());
+    assert!(armed(&ui).is_empty());
+    if let Session::Demo(c) = &ui.session {
+        assert_eq!(c.driver.current["mock-1"][0][0], 40000);
+        assert_eq!(c.driver.current["mock-2"][0][0], 50000);
+    }
+}
+
+#[test]
+fn external_change_turns_dimming_off_with_a_notice_instead_of_a_lock() {
+    let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
+    ui.live_control("master", 35, true, 0).unwrap();
+    let generation = ui.generation;
+    if let Session::Demo(c) = &mut ui.session {
+        // Windows reset display 1, for example when the monitor woke up.
+        c.driver
+            .current
+            .insert("mock-1".into(), vec![vec![40000; 256]; 3]);
+    }
+    ui.heartbeat().unwrap();
+    let status = ui.status().unwrap();
+    assert!(!status.live_blocked && status.recovery.is_none() && !ui.needs_attention());
+    assert!(status.restore_errors.is_empty());
+    assert_eq!(status.controls["master"].dim, 0);
+    assert!(
+        status.generation > generation,
+        "requests queued on the old level are cancelled"
+    );
+    let notice = status.notice.clone().unwrap();
+    assert!(notice.contains("turned off"), "{notice}");
+    assert!(
+        status.message.contains("mock-1") && status.message.contains("saved original"),
+        "{}",
+        status.message
+    );
+    assert!(ui.live_control("master", 40, true, generation).is_err());
+    assert!(armed(&ui).is_empty());
+    if let Session::Demo(c) = &ui.session {
+        assert_eq!(c.driver.current["mock-1"][0][0], 40000);
+        assert_eq!(
+            c.driver.current["mock-2"][0][0], 50000,
+            "every display returns together"
+        );
+    }
+    // A new gesture dims again straight away, including the tray wheel.
+    ui.tray_wheel(1, ui.generation).unwrap();
+    assert_eq!(ui.controls["master"].dim, 5);
+    assert_eq!(ui.status().unwrap().notice, None);
 }
 
 #[test]
@@ -60,10 +113,15 @@ fn failed_live_request_exposes_a_paused_state_until_explicit_restore() {
         ui.needs_attention(),
         "a healthy heartbeat cannot clear recovery"
     );
-    if let Session::Demo(c) = &ui.session {
+    if let Session::Demo(c) = &mut ui.session {
         assert_eq!(c.driver.writes, 3); // Two accepted writes, one unverified attempt; no retry loop.
         assert_eq!(c.driver.current["mock-1"][0][0], 19200);
+        c.driver.current.get_mut("mock-2").unwrap()[0][0] = 7;
     }
+    // An external change during the stop never replaces the explicit Restore.
+    let _ = ui.heartbeat();
+    assert_eq!(ui.status().unwrap().recovery, Some(Recovery::Apply));
+    assert!(ui.status().unwrap().live_blocked);
     ui.restore().unwrap();
     let restored = ui.status().unwrap();
     assert!(!restored.live_blocked);
@@ -126,6 +184,12 @@ fn unplugged_display_offers_quit_anyway_and_restores_once_it_returns() {
     }
     assert_eq!(ui.heartbeat().unwrap_err(), DISCONNECTED);
     assert!(ui.detached());
+    if let Session::Demo(c) = &ui.session {
+        assert_eq!(
+            c.driver.current["mock-1"][0][0], 40000,
+            "the safety stop already restored the attached display"
+        );
+    }
     let error = ui.restore().unwrap_err();
     assert_eq!(error, format!("mock-2: {DISCONNECTED}"));
     let status = ui.status().unwrap();
@@ -151,6 +215,27 @@ fn unplugged_display_offers_quit_anyway_and_restores_once_it_returns() {
     ui.restore().unwrap();
     assert!(!ui.detached() && !ui.needs_attention());
     assert!(armed(&ui).is_empty());
+    // A returning display is restored by the next heartbeat without a click.
+    let mut ui = UiSession::new(Session::demo().unwrap()).unwrap();
+    ui.live_control("master", 35, true, 0).unwrap();
+    if let Session::Demo(c) = &mut ui.session {
+        c.driver.detached = vec!["mock-2".into()];
+    }
+    assert!(ui.heartbeat().is_err());
+    for _ in 0..3 {
+        assert!(ui.heartbeat().is_err());
+        assert!(ui.detached());
+    }
+    if let Session::Demo(c) = &mut ui.session {
+        c.driver.detached.clear();
+    }
+    ui.heartbeat().unwrap();
+    assert!(!ui.detached() && !ui.needs_attention());
+    assert!(ui.status().unwrap().notice.is_some());
+    assert!(armed(&ui).is_empty());
+    if let Session::Demo(c) = &ui.session {
+        assert_eq!(c.driver.current["mock-2"][0][0], 50000);
+    }
 }
 
 #[test]

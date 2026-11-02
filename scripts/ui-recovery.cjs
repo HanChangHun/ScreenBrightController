@@ -271,6 +271,24 @@ const surface = (api, popup = false, timeouts) => fakeSurface({ invoke: api.invo
   ok(reject.nodes['notice-message'].textContent.includes('Quit anyway'));
   eq(reject.nodes.recover.hidden, false);
   eq(rejectSlider.disabled, true);
+  // A safety stop that already restored every display is a notice, not a lock.
+  const offApi = backend();
+  offApi.failLive = false;
+  Object.assign(offApi.state, { generation: 3, revision: 9, armed: [], outcomes: [],
+    notice: 'Display changed, so dimming was turned off. Dim again when ready.',
+    message: 'Dimming turned off automatically: raw-1: external color change or readback mismatch (now equals the saved original); restored and disarmed.' });
+  for (const control of Object.values(offApi.state.controls)) control.dim = 0;
+  const off = surface(offApi);
+  await settle();
+  eq(off.nodes['notice-message'].textContent, 'Display changed, so dimming was turned off. Dim again when ready.');
+  ok(off.nodes['notice-detail'].textContent.includes('Display 1: external color change'));
+  ok(!off.nodes['notice-detail'].textContent.includes('raw-1'));
+  eq(off.nodes['notice-details'].hidden, false);
+  eq(off.nodes.recover.hidden, true);
+  const offSlider = off.find('master', 'range');
+  eq(offSlider.disabled, false);
+  offSlider.value = '20'; fire(offSlider, 'input'); await settle(); await settle();
+  eq(offApi.calls.filter(call => call.command === 'live_control').map(call => [call.args.dim, call.args.generation]), [[20, 3]]);
   const native = { core: { invoke() { throw Error('Native bridge must not be called by demo initialization'); } } };
   const nativeWindow = { __TAURI__: native };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/demo/demo.js'), 'utf8'), { window: nativeWindow, location: { search: '?demo=1' }, URLSearchParams });

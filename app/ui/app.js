@@ -26,7 +26,7 @@ function renderNotice(){
  const rejected=!needsRestore&&!localError&&snapshot?.notice||'';
  const message=statusUnavailable?'Display status unavailable. Restore is still available.':needsRestore?recoveryMessage:localError||rejected||baseline;
  const evidence=(snapshot?.outcomes||[]).map(row=>`${label(row.id)} — API: ${row.api_success?'accepted':'rejected'}; readback: ${row.readback_matches===true?'matched':row.readback_matches===false?'not matched':'unavailable'}${row.readback_error?` (${readable(row.readback_error)})`:''}`);
- const detail=needsRestore&&!statusUnavailable?[readable(snapshot?.message||localError),...evidence,...(snapshot?.restore_errors||[]).map(readable)].filter(Boolean).join('\n'):rejected?evidence.join('\n'):localError;
+ const detail=needsRestore&&!statusUnavailable?[readable(snapshot?.message||localError),...evidence,...(snapshot?.restore_errors||[]).map(readable)].filter(Boolean).join('\n'):rejected?(evidence.length?evidence.join('\n'):readable(snapshot?.message||'')):localError;
  if($('notice-message').textContent!==message)$('notice-message').textContent=message;
  $('notice-detail').textContent=detail;$('notice-details').hidden=!detail;
  $('notice').hidden=!message;

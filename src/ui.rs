@@ -1,7 +1,8 @@
 //! Backend-owned ephemeral controls; live_control is the intentional user-gesture write boundary.
 use crate::{
-    controller::{detached_only, Outcome},
+    controller::{detached_only, Monitor, Outcome},
     dimming_percent,
+    log::write as log,
     session::Session,
 };
 use serde::Serialize;
@@ -119,9 +120,62 @@ pub struct UiSession {
     pub message: String,
     /// Non-blocking: a rejected update left the previous verified level in place.
     notice: Option<String>,
+    /// Last control levels written to the log, so a slider drag logs one settled line.
+    logged_level: String,
+}
+/// Display IDs, names and saved-original tops, for the log.
+fn describe(monitors: &[Monitor]) -> String {
+    monitors
+        .iter()
+        .map(|m| match &m.original {
+            Some(r) => format!(
+                "{} \"{}\" top {}{}",
+                m.id,
+                m.name,
+                crate::tops(r),
+                if crate::looks_dimmed(r) {
+                    " (looks dimmed)"
+                } else {
+                    ""
+                }
+            ),
+            None => format!(
+                "{} \"{}\" unreadable: {}",
+                m.id,
+                m.name,
+                m.error.as_deref().unwrap_or("unknown")
+            ),
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+/// API and readback per display, for the log.
+fn outcomes_text(rows: &[Outcome]) -> String {
+    rows.iter()
+        .map(|r| {
+            let readback = match (r.readback_matches, &r.readback_error) {
+                (Some(true), _) => "matched".to_string(),
+                (Some(false), _) => "differs".into(),
+                (None, Some(e)) => format!("failed ({e})"),
+                (None, None) => "unavailable".into(),
+            };
+            format!(
+                "{} API {} readback {readback}{}",
+                r.id,
+                if r.api_success { "ok" } else { "rejected" },
+                if r.kept_previous {
+                    " kept previous"
+                } else {
+                    ""
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 impl UiSession {
     pub fn new(session: Session) -> Result<Self, String> {
+        log(format!("session started: {}", describe(session.monitors())));
         let mut controls = BTreeMap::from([(
             "master".into(),
             Control {
@@ -138,7 +192,7 @@ impl UiSession {
                 },
             );
         }
-        Ok(Self {
+        let mut ui = Self {
             session,
             controls,
             generation: 0,
@@ -148,7 +202,18 @@ impl UiSession {
             outcomes: vec![],
             message: "No changes applied.".into(),
             notice: None,
-        })
+            logged_level: String::new(),
+        };
+        ui.logged_level = ui.level();
+        Ok(ui)
+    }
+    /// Control levels as `id=dim`, with ` off` for an excluded display.
+    fn level(&self) -> String {
+        self.controls
+            .iter()
+            .map(|(id, c)| format!("{id}={}{}", c.dim, if c.enabled { "" } else { " off" }))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
     /// Authoritative recovery state; read-only and independent of request errors.
     pub fn needs_attention(&self) -> bool {
@@ -235,6 +300,11 @@ impl UiSession {
                 self.generation += 1;
                 match self.apply() {
                     Ok(true) => {
+                        log(format!(
+                            "Windows rejected {dim} and kept {}: {}",
+                            previous.dim,
+                            outcomes_text(&rejected)
+                        ));
                         self.outcomes = rejected;
                         self.notice = Some(if previous.dim == dim {
                             "Windows rejected this change and kept the previous setting.".into()
@@ -255,18 +325,108 @@ impl UiSession {
         self.recovery = Some(Recovery::Apply);
         self.generation += 1;
         self.message = format!("Live update stopped: {e}. Restore before retrying.");
+        log(format!(
+            "live update stopped, waiting for Restore: {e}; {}",
+            outcomes_text(&self.outcomes)
+        ));
         Err(e)
     }
+    /// A safety stop restores every display itself and needs the user only when that
+    /// fails; the stop then keeps retrying. Rejected or unverified writes (Apply) are
+    /// never cleared without the user's Restore.
     pub fn heartbeat(&mut self) -> Result<(), String> {
-        if let Err(e) = self.session.heartbeat() {
-            self.recovery = Some(self.failure(&e, Recovery::Safety));
-            self.message = format!("Safety stop: {e}. Restore before retrying.");
-            self.live_blocked = true;
-            self.generation += 1;
-            self.revision += 1;
-            return Err(e);
+        match self.recovery {
+            None => match self.session.heartbeat() {
+                Ok(()) => {
+                    let level = self.level();
+                    if level != self.logged_level {
+                        log(format!("dimming set: {level}"));
+                        self.logged_level = level;
+                    }
+                    Ok(())
+                }
+                Err(e) => self.safety_stop(e),
+            },
+            Some(Recovery::Apply) => self.session.heartbeat(),
+            Some(kind) => self.retry_restore(kind),
         }
-        Ok(())
+    }
+    fn safety_stop(&mut self, e: String) -> Result<(), String> {
+        // Fence intents queued on the old level in every window before restoring.
+        self.generation += 1;
+        self.revision += 1;
+        let detail = match self
+            .session
+            .restore()
+            .and_then(|()| self.session.all_restored())
+        {
+            Ok(true) => {
+                self.turned_off(
+                    "Display changed, so dimming was turned off. Dim again when ready.",
+                    &e,
+                );
+                return Ok(());
+            }
+            Ok(false) => "the watchdog still reports a pending restoration".to_string(),
+            Err(detail) => detail,
+        };
+        self.recovery = Some(self.failure(&detail, Recovery::Safety));
+        self.message = format!(
+            "Safety stop: {e}. Automatic restore failed: {detail}. Restore before retrying."
+        );
+        self.live_blocked = true;
+        log(format!(
+            "safety stop: {e}; automatic restore failed, retrying: {detail}"
+        ));
+        Err(e)
+    }
+    fn retry_restore(&mut self, kind: Recovery) -> Result<(), String> {
+        let error = match self
+            .session
+            .restore()
+            .and_then(|()| self.session.all_restored())
+        {
+            Ok(true) => {
+                self.turned_off(
+                    "Original brightness restored. Dim again when ready.",
+                    "a retried restore succeeded",
+                );
+                return Ok(());
+            }
+            Ok(false) => "the watchdog still reports a pending restoration".to_string(),
+            Err(e) => e,
+        };
+        let otherwise = if kind == Recovery::Safety {
+            Recovery::Safety
+        } else {
+            Recovery::Restore
+        };
+        let recovery = self.failure(&error, otherwise);
+        if self.recovery != Some(recovery) {
+            self.recovery = Some(recovery);
+            self.revision += 1;
+            self.message = match recovery {
+                Recovery::Detached => format!("Restore waits for an unplugged display: {error}. The watchdog restores it when it returns."),
+                _ => format!("Restore failed: {error}. Keep the app open and retry."),
+            };
+            log(format!("restore still failing: {error}"));
+        }
+        Err(error)
+    }
+    /// Every display is back at its saved original: unlock the controls at 0.
+    fn turned_off(&mut self, notice: &str, reason: &str) {
+        self.live_blocked = false;
+        self.recovery = None;
+        for control in self.controls.values_mut() {
+            control.dim = 0;
+        }
+        self.outcomes.clear();
+        self.generation += 1;
+        self.revision += 1;
+        self.notice = Some(notice.into());
+        self.message = format!("Dimming turned off automatically: {reason}.");
+        self.logged_level = self.level();
+        log(format!("dimming turned off automatically: {reason}"));
     }
     /// Ok(false): a display refused the new ramp and still reads back its last verified one.
     fn apply(&mut self) -> Result<bool, String> {
@@ -323,7 +483,11 @@ impl UiSession {
             .collect();
         self.revision += 1;
         for id in ids {
-            self.session.reset_baseline(&id)?;
+            if let Err(e) = self.session.reset_baseline(&id) {
+                log(format!("reset to default ramp failed: {e}"));
+                return Err(e);
+            }
+            log(format!("{id}: saved original reset to the default ramp"));
         }
         Ok(())
     }
@@ -340,10 +504,13 @@ impl UiSession {
                     control.dim = 0;
                 }
                 self.outcomes.clear();
+                self.logged_level = self.level();
+                log("Restore: saved originals restored");
                 self.message="Saved original gamma restored for attempted targets only. Visible effect unverified.".into();
                 Ok(())
             }
             Err(e) => {
+                log(format!("Restore failed: {e}"));
                 let recovery = self.failure(&e, Recovery::Restore);
                 self.recovery = Some(recovery);
                 self.message = if recovery == Recovery::Detached {

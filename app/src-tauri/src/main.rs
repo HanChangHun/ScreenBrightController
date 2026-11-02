@@ -3,6 +3,7 @@ mod tray_wheel;
 mod update;
 use screen_bright_controller::startup::{self, launch_mode, LaunchMode};
 use screen_bright_controller::{
+    log,
     session::Session,
     ui::{popup_bounds, popup_on_screen, PopupRect, Status, UiSession},
 };
@@ -95,7 +96,8 @@ fn refresh_attention(app: &tauri::AppHandle) {
         }
     });
 }
-fn restore_app(state: &State, app: &tauri::AppHandle) -> Result<(), String> {
+fn restore_app(state: &State, app: &tauri::AppHandle, source: &str) -> Result<(), String> {
+    log::write(format!("Restore requested from {source}"));
     // Without a session nothing was dimmed, so Quit must not be blocked.
     let result = match state.lock().map_err(|_| "state lock failed")?.as_mut() {
         Ok(s) => s.restore(),
@@ -123,7 +125,7 @@ fn live_control(
 }
 #[tauri::command]
 fn restore(state: tauri::State<'_, State>, app: tauri::AppHandle) -> Result<Status, String> {
-    let result = restore_app(&state, &app);
+    let result = restore_app(&state, &app, "the popup");
     let _ = app.emit("state-changed", ());
     result?;
     with_session(&state, UiSession::status)
@@ -144,7 +146,7 @@ fn hide_popup(app: tauri::AppHandle) {
     }
 }
 fn report(app: &tauri::AppHandle, error: String) {
-    eprintln!("{error}");
+    log::write(format!("error: {error}"));
     // Errors may be obsolete or unrelated to display recovery. Re-read current state
     // and publish under its lock rather than letting a delayed report undo Restore.
     refresh_attention(app);
@@ -220,6 +222,18 @@ fn main() {
         return;
     }
     let demo = mode == LaunchMode::Demo;
+    if !demo {
+        log::init("app.log");
+        log::write(format!(
+            "app {} started{}",
+            env!("CARGO_PKG_VERSION"),
+            if args.is_empty() {
+                ""
+            } else {
+                " at Windows login"
+            }
+        ));
+    }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .manage(Mutex::new(Err::<UiSession, String>(
@@ -243,7 +257,11 @@ fn main() {
             } else {
                 Session::real()
             };
-            *app.state::<State>().lock().unwrap() = session.and_then(UiSession::new);
+            let session = session.and_then(UiSession::new);
+            if let Err(e) = &session {
+                log::write(format!("display session unavailable: {e}"));
+            }
+            *app.state::<State>().lock().unwrap() = session;
             let worker = app.handle().clone();
             std::thread::spawn(move || {
                 let mut last_error = String::new();
@@ -301,7 +319,7 @@ fn main() {
                 })
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "restore" => {
-                        let result = restore_app(&app.state::<State>(), app);
+                        let result = restore_app(&app.state::<State>(), app, "the tray menu");
                         if let Err(e) = result {
                             report(app, e);
                         }
@@ -339,7 +357,7 @@ fn main() {
             // Read what the menu offered before this attempt republishes it.
             let offered = QUIT_ANYWAY.load(Ordering::SeqCst);
             let state = app.state::<State>();
-            if let Err(e) = restore_app(&state, app) {
+            if let Err(e) = restore_app(&state, app, "quit") {
                 // Quit anyway: only unplugged displays remain, and the running watchdog keeps
                 // their originals and restores them when they return. Anything else cancels.
                 let detached = state
@@ -347,8 +365,15 @@ fn main() {
                     .is_ok_and(|s| s.as_ref().is_ok_and(UiSession::detached));
                 if !(offered && detached) {
                     api.prevent_exit();
+                    log::write("quit cancelled: Restore failed");
                     report(app, e)
+                } else {
+                    log::write(
+                        "quit anyway: the watchdog restores unplugged displays when they return",
+                    );
                 }
+            } else {
+                log::write("app exiting");
             }
         }
     });

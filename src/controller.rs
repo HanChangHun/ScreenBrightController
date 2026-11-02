@@ -125,14 +125,31 @@ impl<D: Driver> Controller<D> {
     }
     pub fn verify_target(&mut self, id: &str) -> Result<(), String> {
         if let Some(expected) = self.expected.get(id) {
-            if self.driver.read(id).as_ref() != Ok(expected) {
+            let read = self.driver.read(id);
+            if read.as_ref() != Ok(expected) {
+                let observed = self.observed(id, &read);
                 self.restore_target(id)?;
                 return Err(format!(
-                    "{id}: external color change or readback mismatch; restored and disarmed"
+                    "{id}: external color change or readback mismatch ({observed}); restored and disarmed"
                 ));
             }
         }
         Ok(())
+    }
+    /// What replaced the expected ramp, so a log tells a reset from another color tool.
+    fn observed(&self, id: &str, read: &Result<Ramp, String>) -> String {
+        match read {
+            Err(e) => format!("read failed: {e}"),
+            Ok(r) if monitor(&self.monitors, id).and_then(|m| m.original.as_ref()) == Some(r) => {
+                "now equals the saved original".into()
+            }
+            Ok(r) if *r == crate::linear_ramp() => "now equals the default linear ramp".into(),
+            Ok(r) => format!(
+                "now top R/G/B {}, expected {}",
+                crate::tops(r),
+                self.expected.get(id).map_or("?".into(), crate::tops)
+            ),
+        }
     }
     pub fn heartbeat(&mut self) -> Result<(), String> {
         for id in self.changed.iter().cloned().collect::<Vec<_>>() {

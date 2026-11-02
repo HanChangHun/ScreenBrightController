@@ -50,9 +50,20 @@ fn heartbeat_detects_external_change_without_fighting() {
     c.driver
         .current
         .insert("mock-1".into(), vec![vec![333; 256]; 3]);
-    assert!(c.heartbeat().is_err());
+    let error = c.heartbeat().unwrap_err();
+    // The log can tell another color tool apart from a reset to the saved original.
+    assert!(
+        error.contains("mock-1") && error.contains("top R/G/B 333/333/333"),
+        "{error}"
+    );
     assert!(c.changed.is_empty());
     assert_eq!(c.driver.current["mock-1"][0][0], 40000);
+    c.apply_continuous(&["mock-2".into()], 70).unwrap();
+    c.driver
+        .current
+        .insert("mock-2".into(), vec![vec![50000; 256]; 3]);
+    let error = c.heartbeat().unwrap_err();
+    assert!(error.contains("now equals the saved original"), "{error}");
 }
 #[test]
 fn watchdog_restored_lease_is_reported_and_forgotten() {
