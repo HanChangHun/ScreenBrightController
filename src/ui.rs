@@ -5,7 +5,7 @@ use crate::{
     log::write as log,
     session::Session,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 /// Whether a tray left-click opens the popup. Pressing the tray icon takes focus from a
 /// visible popup, so focus loss may hide it just before the click arrives; a click within
@@ -49,6 +49,70 @@ pub fn popup_bounds(work: PopupRect, click: (f64, f64), scale: f64) -> PopupRect
     let x = (click.0.round() as i32 - w as i32 - gap).clamp(left, left + width as i32 - w as i32);
     let y = (click.1.round() as i32 - h as i32 - gap).clamp(top, top + height as i32 - h as i32);
     (x, y, w, h)
+}
+/// Tray anchor for a window whose measured outer size is `outer`: beside the click and a
+/// DPI-scaled 12 px inside the work area, so the popup clears the taskbar. Tauri's set_size
+/// sizes the client area and the real window is taller, so callers pass the measured size.
+pub fn popup_position(
+    work: PopupRect,
+    click: (f64, f64),
+    outer: (u32, u32),
+    scale: f64,
+) -> (i32, i32) {
+    let (left, top, width, height) = work;
+    let gap = i64::from(physical(12.0, scale));
+    let fit = |want: f64, start: i32, len: u32, size: u32| {
+        let free = i64::from(len) - i64::from(size);
+        let margin = gap.min(free.max(0) / 2);
+        let (lo, hi) = (i64::from(start) + margin, i64::from(start) + free - margin);
+        (want.round() as i64).clamp(lo, hi.max(lo)) as i32
+    };
+    (
+        fit(
+            click.0 - f64::from(outer.0) - gap as f64,
+            left,
+            width,
+            outer.0,
+        ),
+        fit(
+            click.1 - f64::from(outer.1) - gap as f64,
+            top,
+            height,
+            outer.1,
+        ),
+    )
+}
+/// The set_size request that gives `target` as the outer size, from one measurement of
+/// how much larger than `requested` the window actually became.
+pub fn size_request(target: (u32, u32), requested: (u32, u32), actual: (u32, u32)) -> (u32, u32) {
+    let fix = |t: u32, r: u32, a: u32| {
+        (i64::from(t) - (i64::from(a) - i64::from(r))).clamp(1, i64::from(u32::MAX)) as u32
+    };
+    (
+        fix(target.0, requested.0, actual.0),
+        fix(target.1, requested.1, actual.1),
+    )
+}
+/// Outer popup geometry kept across restarts. Only these four numbers are accepted.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SavedPopup {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+pub fn save_popup_geometry((x, y, width, height): PopupRect) -> String {
+    serde_json::json!({ "x": x, "y": y, "width": width, "height": height }).to_string()
+}
+/// A saved outer rect that is well formed and still shows its title strip on some work area.
+pub fn saved_popup_geometry(text: &str, work_areas: &[PopupRect]) -> Option<PopupRect> {
+    let s: SavedPopup = serde_json::from_str(text).ok()?;
+    let rect = (s.x, s.y, s.width, s.height);
+    ((1..=16384).contains(&s.width)
+        && (1..=16384).contains(&s.height)
+        && popup_on_screen(work_areas, rect))
+    .then_some(rect)
 }
 /// Whole wheel detents only; invalid hover, injected input, a new generation or a
 /// long pause discards a high-resolution wheel's partial detent.

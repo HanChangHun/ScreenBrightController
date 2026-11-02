@@ -6,8 +6,8 @@ use screen_bright_controller::{
     log,
     session::Session,
     ui::{
-        focus_loss_hides_popup, popup_bounds, popup_on_screen, tray_click_shows_popup, PopupRect,
-        Status, UiSession,
+        focus_loss_hides_popup, popup_bounds, popup_on_screen, popup_position, save_popup_geometry,
+        saved_popup_geometry, size_request, tray_click_shows_popup, PopupRect, Status, UiSession,
     },
 };
 use std::sync::{
@@ -164,8 +164,39 @@ fn reset_baseline(state: tauri::State<'_, State>, app: tauri::AppHandle) -> Resu
 }
 #[tauri::command]
 fn hide_popup(app: tauri::AppHandle) {
+    remember_popup(&app);
     if let Some(w) = app.get_webview_window("popup") {
         let _ = w.hide();
+    }
+}
+/// Where the popup's outer geometry is kept between runs.
+fn geometry_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    Some(
+        app.path()
+            .app_local_data_dir()
+            .ok()?
+            .join("popup-geometry.json"),
+    )
+}
+/// Main thread only: record where the visible popup is before it hides or the app exits.
+fn remember_popup(app: &tauri::AppHandle) {
+    let Some(w) = app.get_webview_window("popup") else {
+        return;
+    };
+    if !w.is_visible().unwrap_or(false) {
+        return;
+    }
+    let (Ok(position), Ok(size), Some(file)) =
+        (w.outer_position(), w.outer_size(), geometry_file(app))
+    else {
+        return;
+    };
+    let text = save_popup_geometry((position.x, position.y, size.width, size.height));
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(&file, text) {
+        log::write(format!("popup position not saved: {e}"));
     }
 }
 fn report(app: &tauri::AppHandle, error: String) {
@@ -184,8 +215,52 @@ fn work_area(monitor: &tauri::Monitor) -> PopupRect {
         work.size.height,
     )
 }
-/// The first open anchors to the tray. Later opens keep the native geometry the user chose
-/// and re-anchor only when no work area shows the popup's top strip (e.g. its monitor left).
+/// Give the popup this outer rect. set_size sizes the client area, so one measurement
+/// corrects the request until the window itself has the saved size.
+fn set_outer(w: &tauri::WebviewWindow, (x, y, width, height): PopupRect) -> Result<(), String> {
+    // Move first: crossing to another DPI rescales the window, then the size is exact.
+    w.set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    w.set_size(tauri::PhysicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    let actual = w.outer_size().map_err(|e| e.to_string())?;
+    let request = size_request(
+        (width, height),
+        (width, height),
+        (actual.width, actual.height),
+    );
+    if request != (width, height) {
+        w.set_size(tauri::PhysicalSize::new(request.0, request.1))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+/// Size the popup for the tray's monitor, then place the measured window beside the click
+/// and clear of the taskbar.
+fn anchor_popup(
+    app: &tauri::AppHandle,
+    w: &tauri::WebviewWindow,
+    click: tauri::PhysicalPosition<f64>,
+) -> Result<(), String> {
+    let monitor = app
+        .monitor_from_point(click.x, click.y)
+        .map_err(|e| e.to_string())?
+        .ok_or("tray monitor unavailable")?;
+    let (work, scale) = (work_area(&monitor), monitor.scale_factor());
+    let (x, y, width, height) = popup_bounds(work, (click.x, click.y), scale);
+    // Move first: crossing to another DPI rescales the window, then the size is exact.
+    w.set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    w.set_size(tauri::PhysicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    let outer = w.outer_size().map_err(|e| e.to_string())?;
+    let (x, y) = popup_position(work, (click.x, click.y), (outer.width, outer.height), scale);
+    w.set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())
+}
+/// The first open restores the geometry saved by the last run, or anchors to the tray. Later
+/// opens keep the native geometry the user chose and re-anchor only when no work area shows
+/// the popup's top strip (e.g. its monitor left).
 fn show_popup(app: &tauri::AppHandle, click: tauri::PhysicalPosition<f64>) -> Result<(), String> {
     let w = app.get_webview_window("popup").ok_or("popup unavailable")?;
     let areas: Vec<_> = app
@@ -197,22 +272,17 @@ fn show_popup(app: &tauri::AppHandle, click: tauri::PhysicalPosition<f64>) -> Re
     let position = w.outer_position().map_err(|e| e.to_string())?;
     let size = w.outer_size().map_err(|e| e.to_string())?;
     let current = (position.x, position.y, size.width, size.height);
-    if !POPUP_PLACED.load(Ordering::SeqCst) || !popup_on_screen(&areas, current) {
-        let monitor = app
-            .monitor_from_point(click.x, click.y)
-            .map_err(|e| e.to_string())?
-            .ok_or("tray monitor unavailable")?;
-        let (x, y, width, height) = popup_bounds(
-            work_area(&monitor),
-            (click.x, click.y),
-            monitor.scale_factor(),
-        );
-        // Move first: crossing to another DPI rescales the window, then the size is exact.
-        w.set_position(tauri::PhysicalPosition::new(x, y))
-            .map_err(|e| e.to_string())?;
-        w.set_size(tauri::PhysicalSize::new(width, height))
-            .map_err(|e| e.to_string())?;
+    if !POPUP_PLACED.load(Ordering::SeqCst) {
+        let saved = geometry_file(app)
+            .and_then(|file| std::fs::read_to_string(file).ok())
+            .and_then(|text| saved_popup_geometry(&text, &areas));
+        match saved {
+            Some(rect) => set_outer(&w, rect)?,
+            None => anchor_popup(app, &w, click)?,
+        }
         POPUP_PLACED.store(true, Ordering::SeqCst);
+    } else if !popup_on_screen(&areas, current) {
+        anchor_popup(app, &w, click)?;
     }
     w.show().map_err(|e| e.to_string())?;
     w.set_focus().map_err(|e| e.to_string())?;
@@ -334,6 +404,7 @@ fn main() {
                         let hidden = FOCUS_HIDDEN_MS.load(Ordering::SeqCst);
                         let since = (hidden > 0).then(|| clock_ms().saturating_sub(hidden));
                         if visible {
+                            remember_popup(app);
                             if let Some(w) = app.get_webview_window("popup") {
                                 let _ = w.hide();
                             }
@@ -375,6 +446,7 @@ fn main() {
             match event {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
+                    remember_popup(window.app_handle());
                     let _ = window.hide();
                 }
                 tauri::WindowEvent::Focused(false)
@@ -385,6 +457,7 @@ fn main() {
                     ) =>
                 {
                     FOCUS_HIDDEN_MS.store(clock_ms(), Ordering::SeqCst);
+                    remember_popup(window.app_handle());
                     let _ = window.hide();
                 }
                 _ => {}
@@ -394,6 +467,7 @@ fn main() {
         .expect("Tauri application failed to initialize");
     app.run(|app, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            remember_popup(app);
             // Read what the menu offered before this attempt republishes it.
             let offered = QUIT_ANYWAY.load(Ordering::SeqCst);
             let state = app.state::<State>();

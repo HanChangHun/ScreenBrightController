@@ -40,9 +40,9 @@ The popup also hides when it loses focus, and dimming stays active. Closing or h
 
 Drag the title or empty header space to move the popup; buttons and inputs do not start a drag. Resize from any border or corner. Moving and resizing use native Windows window handling.
 
-- The first open places a 430×340 logical-pixel popup near the tray icon; the minimum size is 430×260.
+- The first open places a 430×340 logical-pixel popup near the tray icon, just above the taskbar; the minimum size is 430×260.
 - Expanded settings, details or many displays use internal scrolling.
-- Position and size survive hiding and reopening while the app runs; restarting opens a fresh popup near the tray.
+- Position and size are saved whenever the popup hides and when the app quits, so they survive reopening, restarts and updates.
 - If no screen shows the popup's title area when you reopen it (for example, its monitor was disconnected), it opens near the tray again.
 
 Moving or resizing does not apply dimming or change startup settings.

@@ -17,7 +17,7 @@ Not executed by development tools. Use only with deliberate user authorization. 
 
 - First tray open: 430×340 logical popup placed within the clicked monitor's work area. Drag title/header blank space with the left mouse button; Settings, Restore, − and all inputs must not move the window. Double-clicking the header must not maximize it.
 - Drag each of four borders and four corners (native Tauri/Windows resizing). The 430×260 logical minimum holds; settings/recovery/many display rows remain scrollable with readable controls.
-- Move and resize, then hide with −, Escape and tray toggle separately. Reopen from either monitor's tray: retain the adjusted geometry, not a fresh tray anchor/default size. Restart is intentionally **not** persisted.
+- Move and resize, then hide with −, Escape and tray toggle separately. Reopen from either monitor's tray: retain the adjusted geometry, not a fresh tray anchor/default size. After Restore and quit and a restart, the first open restores that geometry; with its monitor disconnected it anchors above the tray instead.
 - Move between monitors of different DPI and check that Windows rescales the popup. Disconnect the popup's monitor while it is hidden, then reopen from the tray: it opens near the tray again.
 - Keep dimming controls untouched; compare read-only native ramps and startup registration before/after all movement/resizing/hiding. Never launch two real controllers together or kill the live watchdog for this acceptance.
 
